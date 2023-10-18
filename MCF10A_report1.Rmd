@@ -1,0 +1,1108 @@
+---
+title: "MCF10A metabolism screen"
+author: "Marion Hardy"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    toc: true 
+    theme: spacelab 
+    highlight: monochrome
+editor_options: 
+  chunk_output_type: console
+  markdown: 
+    wrap: 72
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message = FALSE, cache = TRUE, echo = FALSE, warning = F, cache.lazy = F)
+knitr::opts_chunk$set(fig.width=10, fig.height=15) 
+
+library(RColorBrewer)
+library(tidyverse)
+library(DESeq2)
+library(tidyverse)
+library(cowplot)
+library(biomaRt)
+library(ggrepel)
+library(RColorBrewer)
+library(pheatmap)
+library(xlsx)
+library(msigdbr)
+library(clusterProfiler)
+
+```
+
+```{r Data loading, include=FALSE}
+
+counts <- as.data.frame(read.csv("./data/MCF10A_counts.csv", row.names = 1))
+coldata = read.csv("./data/coldata.csv")
+counts = counts[,-1]
+
+```
+
+# Introduction
+
+Analysis of MCF10A in 16 different conditions 2 biological replicates
+per sample
+
+# Quality check
+## Size factors and Dispersion plot
+
+```{r, fig.height=4, fig.width=6}
+
+dds <- DESeqDataSetFromMatrix(countData = counts, colData = coldata,
+                              design = ~condition+replicate) 
+
+# Generate a linear model
+
+dds$condition <- relevel(dds$condition, "IM")
+dds <- DESeq(dds)
+saveRDS(dds, file = "./data_output/All_vs_IM_dds.rds")
+
+# Checking size factors and dispersion
+
+sizeFactors(dds) %>% 
+  knitr::kable()
+
+plotDispEsts(dds) # verifies normalization, graph looks a-ok
+
+```
+
+# PCA
+
+## All conditions
+
+```{r, fig.height=6, fig.width=12}
+# Checking PCA
+
+rld <- vst(dds)
+
+p1 <- plotPCA(rld,intgroup="condition") + 
+  geom_text_repel(max.overlaps = 15,
+                  box.padding = 0.25,
+                  segment.color = 'grey50',
+                  fontface = "italic",
+                  label = rld$condition)+
+  labs(title = 'PCA per condition')
+
+p2 <- plotPCA(rld,intgroup="replicate") + 
+  geom_text_repel(max.overlaps = 15,
+                  box.padding = 0.25,
+                  segment.color = 'grey50',
+                  fontface = "italic",
+                  label = rld$replicate)+
+  labs(title = 'PCA per condition')
+
+plot_grid(p1, p2, ncol = 2, align = "hv")
+
+```
+
+## Better separation on that central cluster
+
+Removal of - Oligomycin - EGF positive - Growth medium - IL6 - IM HC
+neg - IM ins neg
+
+```{r, fig.height=6, fig.width=12}
+# Checking PCA
+
+dds1 = dds[,dds$condition %in% c('IM','IM_Glutamine_pos',
+                        'IM_Glucose_neg','IM_CT_neg','AMPK_activator',
+                        'AKT_inhibitor','ERK_inhibitor','mTORC1_inhibitor',
+                        'MPC_inhibitor','LDH_inhibitor')]
+rld1 <- vst(dds1)
+
+p3 <- plotPCA(rld1,intgroup="condition") + 
+  geom_text_repel(max.overlaps = 15,
+                  box.padding = 0.25,
+                  segment.color = 'grey50',
+                  fontface = "italic",
+                  label = rld1$condition)+
+  labs(title = 'PCA per condition: Specific conditions selected')
+
+p4 <- plotPCA(rld1,intgroup="replicate") + 
+  geom_text_repel(max.overlaps = 15,
+                  box.padding = 0.25,
+                  segment.color = 'grey50',
+                  fontface = "italic",
+                  label = rld1$replicate)+
+  labs(title = 'PCA per condition: Specific conditions selected')
+
+plot_grid(p3, p4, ncol = 2, align = "hv")
+```
+
+I think we can see a pretty evident batch effect per replicate!
+
+## Attempt to correct the batch effect
+
+```{r, fig.height=8, fig.width=12}
+# Checking PCA
+
+vsd = vst(dds)
+vsd1 = vsd
+assay(vsd1) <- limma::removeBatchEffect(assay(vsd), vsd$replicate)
+
+p5 <- plotPCA(vsd,intgroup="replicate") + 
+  geom_text_repel(max.overlaps = 15,
+                  box.padding = 0.25,
+                  segment.color = 'grey50',
+                  fontface = "italic",
+                  label = vsd$condition)+
+  labs(title = 'Completed data: PCA not corrected')
+
+p6 <- plotPCA(vsd1,intgroup="replicate") + 
+  geom_text_repel(max.overlaps = 15,
+                  box.padding = 0.25,
+                  segment.color = 'grey50',
+                  fontface = "italic",
+                  label = vsd1$condition)+
+  labs(title = 'Completed data: PCA corrected')
+
+# Just on the clustered data
+
+dds1 = dds[,dds$condition %in% c('IM','IM_Glutamine_pos',
+                        'IM_Glucose_neg','IM_CT_neg','AMPK_activator',
+                        'AKT_inhibitor','ERK_inhibitor','mTORC1_inhibitor',
+                        'MPC_inhibitor','LDH_inhibitor')]
+
+vsd = vst(dds1)
+vsd1 = vsd
+assay(vsd1) <- limma::removeBatchEffect(assay(vsd), vsd$replicate)
+
+p7 <- plotPCA(vsd,intgroup="replicate") + 
+  geom_text_repel(max.overlaps = 15,
+                  box.padding = 0.25,
+                  segment.color = 'grey50',
+                  fontface = "italic",
+                  label = vsd$condition)+
+  labs(title = 'Filtered data: PCA not corrected')
+
+p8 <- plotPCA(vsd1,intgroup="replicate") + 
+  geom_text_repel(max.overlaps = 15,
+                  box.padding = 0.25,
+                  segment.color = 'grey50',
+                  fontface = "italic",
+                  label = vsd1$condition)+
+  labs(title = 'Filtered data: PCA corrected')
+
+plot_grid(p5, p6, p7, p8, ncol = 2, nrow = 2, align = "hv")
+
+```
+
+I think we can see a pretty evident batch effect per replicate!
+
+# Distance matrix
+
+## Look at the batch effect disappear
+
+```{r, fig.height=8, fig.width=8}
+
+vsd = vst(dds)
+
+# Checking sample similarity
+
+sampleDists <- dist(t(assay(vsd)))
+sampleDistMatrix <- as.matrix(sampleDists)
+rownames(sampleDistMatrix) <- paste(vsd$condition, sep="-")
+colnames(sampleDistMatrix) <- paste(vsd$condition, sep="-")
+colors <- colorRampPalette(rev(brewer.pal(9, "Blues")) )(255)
+pheatmap(sampleDistMatrix,
+         clustering_distance_rows=sampleDists,
+         clustering_distance_cols=sampleDists,
+         col=colors)
+
+```
+
+```{r, fig.height=8, fig.width=8}
+
+assay(vsd) <- limma::removeBatchEffect(assay(vsd), vsd$replicate)
+
+# Checking sample similarity
+
+sampleDists <- dist(t(assay(vsd)))
+sampleDistMatrix <- as.matrix(sampleDists)
+rownames(sampleDistMatrix) <- paste(vsd$condition, sep="-")
+colnames(sampleDistMatrix) <- paste(vsd$condition, sep="-")
+colors <- colorRampPalette(rev(brewer.pal(9, "Blues")) )(255)
+pheatmap(sampleDistMatrix,
+         clustering_distance_rows=sampleDists,
+         clustering_distance_cols=sampleDists,
+         col=colors)
+
+```
+
+Same thing here, the batch effect can seen and disappears with the limma::removeBatchEffect function. Meaning I need to include replicates in the design formula.
+
+# Comparaisons of interest
+## What should we pick?
+
+```{r}
+resultsNames(dds) %>% 
+  knitr::kable()
+```
+
+Maybe
+- Oligomycin vs IM
+- EGF vs IM
+- EGF vs Oligomycin
+
+## Oligomycin vs IM
+
+```{r}
+
+## OlIM  -----------------------------------------------------------------------
+
+res <- results(dds, name = "condition_Oligomycin_vs_IM")
+res_tbl <- as_tibble(res, rownames="ensembl")
+
+# Import annotation file
+
+ensembl_to_geneName <- readRDS("./data/hsapiens_annotations_230510.rds") %>% 
+  filter(!duplicated(gene, drop = F))
+
+# Add gene names and entrez id to your results
+
+res_tbl <- res_tbl %>%
+  left_join(ensembl_to_geneName) %>%
+  arrange(padj) 
+
+write.csv(res_tbl,"./data_output/Oligomycin_vs_IM/res_tbl.csv", row.names = T)
+
+# plotMA(res) # looks good
+
+# Save the signif genes
+
+overexpr <- res_tbl %>% filter(padj<=0.05 & log2FoldChange>=1) 
+underexpr <- res_tbl %>% filter(padj<=0.05 & log2FoldChange<=-1)
+signif <- full_join(overexpr, underexpr)
+
+write.xlsx(overexpr, file="./data_output/Oligomycin_vs_IM/Sign_genes.xlsx", sheetName="UP")
+write.xlsx(underexpr, file="./data_output/Oligomycin_vs_IM/Sign_genes.xlsx", sheetName="DOWN", append=TRUE)
+write.xlsx(signif, file="./data_output/Oligomycin_vs_IM/Sign_genes.xlsx", sheetName="SIGNIF", append=TRUE)
+
+```
+
+### Volcano plots
+
+```{r, fig.height=6, fig.width=8}
+# Volcano plot
+
+p1 =
+res_tbl %>%
+  filter(!is.na(padj)) %>%
+  ggplot(aes(x = log2FoldChange, y = -log10(padj),
+             color = padj < 0.05 & abs(log2FoldChange) > 1, 
+             label = ifelse(padj<0.05&log2FoldChange>=1|
+                              padj<0.05&log2FoldChange<=-1,as.character(gene),''))) +
+  scale_colour_manual(values = c("gray", "firebrick3")) +
+  labs(col="Significantly expressed")+
+  geom_point(size = 0.5) +
+  geom_hline(yintercept = -log10(0.05)) +
+  geom_vline(xintercept = 1) +
+  geom_vline(xintercept = -1)+
+  geom_text_repel(max.overlaps = 15,
+                  box.padding = 0.25,
+                  segment.color = 'grey50',
+                  fontface = "italic")+
+  labs(title = "Oligomycin_vs_IM")+
+  theme_bw()
+
+print(p1)
+
+ggsave("./figures/Oligomycin_vs_IM/volcanoplot.png", last_plot(), dpi= 500, width = 12, height = 8)
+
+```
+
+### GSEA analysis (logFc)
+
+```{r}
+
+ordered_genes_fc <- res_tbl$log2FoldChange
+names(ordered_genes_fc) <- res_tbl$gene
+ordered_genes_fc <- sort(ordered_genes_fc, decreasing = T)
+
+```
+
+```{r}
+
+# MsigDb
+
+hsa_GOBP_sets <- msigdbr(
+  species = "Homo sapiens", 
+  category = "C5",
+  subcategory = "GO:BP")
+
+hsa_GOMF_sets <- msigdbr(
+  species = "Homo sapiens", 
+  category = "C5",
+  subcategory = "GO:MF")
+
+hsa_GOCC_sets <- msigdbr(
+  species = "Homo sapiens", 
+  category = "C5",
+  subcategory = "GO:CC") 
+
+hsa_reactome_sets <- msigdbr(
+  species = "Homo sapiens", 
+  category = "C2",
+  subcategory = "CP:REACTOME") # for reactome collection
+
+hsa_kegg_sets <- msigdbr(
+  species = "Homo sapiens", 
+  category = "C2",
+  subcategory = "CP:KEGG") # for KEGG collection
+
+hsa_wiki_sets <- msigdbr(
+  species = "Homo sapiens", 
+  category = "C2",
+  subcategory = "CP:WIKIPATHWAYS") # for Wikipathways collection
+
+set.seed(054057) # for reproducibility
+
+```
+
+#### GOBP
+
+```{r, fig.height=8, fig.width=7}
+
+gsea_results <- GSEA(
+  geneList = ordered_genes_fc, 
+  pvalueCutoff = 0.1, 
+  eps = 0, 
+  pAdjustMethod = "BH", 
+  nPermSimple = 10000,
+  TERM2GENE = dplyr::select(
+    hsa_GOBP_sets,
+    gs_name,
+    gene_symbol
+  )
+)
+
+dotplot(gsea_results, x = "NES", showCategory = 30, font.size = 7)+ 
+  labs(title = "GSEA",
+              subtitle = "GSEA GO:BP Oligomycin vs imaging media")+
+   theme(axis.line = element_line(color='black'),
+    plot.background = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank())
+
+ggsave(plot = last_plot(), "./figures/Oligomycin_vs_IM/GOBPgsea.svg", dpi = 300,
+       height = 8, width = 8, device = "svg")
+
+write.xlsx(gsea_results, "./data_output/Oligomycin_vs_IM/GOBPgsea.xlsx")
+
+```
+
+```{r}
+
+cnetplot(gsea_results, foldChange=ordered_genes_fc, showCategory = 50,
+         cex_label_category = .5, cex_label_gene = .5)
+```
+
+#### GOMF
+
+```{r, fig.height=8, fig.width=7}
+
+gsea_results <- GSEA(
+  geneList = ordered_genes_fc, 
+  pvalueCutoff = 0.05, 
+  eps = 0, 
+  pAdjustMethod = "BH", 
+  nPermSimple = 10000,
+  TERM2GENE = dplyr::select(
+    hsa_GOMF_sets,
+    gs_name,
+    gene_symbol
+  )
+)
+
+dotplot(gsea_results, x = "NES", showCategory = 30, font.size = 7)+ 
+  labs(title = "GSEA",
+              subtitle = "GSEA GO:MF Oligomycin vs imaging media")+
+   theme(axis.line = element_line(color='black'),
+    plot.background = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank())
+
+ggsave(plot = last_plot(), "./figures/Oligomycin_vs_IM/GOMFgsea.svg", dpi = 300,
+       height = 8, width = 8, device = "svg")
+
+write.xlsx(gsea_results, "./data_output/Oligomycin_vs_IM/GOMFgsea.xlsx")
+
+```
+
+```{r}
+
+cnetplot(gsea_results, foldChange=ordered_genes_fc, showCategory = 50,
+         cex_label_category = .5, cex_label_gene = .5)
+```
+
+#### Reactome
+
+```{r, fig.height=8, fig.width=7}
+
+gsea_results <- GSEA(
+  geneList = ordered_genes_fc, 
+  pvalueCutoff = 0.05, 
+  eps = 0, 
+  pAdjustMethod = "BH", 
+  nPermSimple = 10000,
+  TERM2GENE = dplyr::select(
+    hsa_reactome_sets,
+    gs_name,
+    gene_symbol
+  )
+)
+
+dotplot(gsea_results, x = "NES", showCategory = 30, font.size = 7)+ 
+  labs(title = "GSEA",
+              subtitle = "GSEA Reactome Oligomycin vs imaging media")+
+   theme(axis.line = element_line(color='black'),
+    plot.background = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank())
+
+ggsave(plot = last_plot(), "./figures/Oligomycin_vs_IM/Reactomegsea.svg", dpi = 300, height = 8, width = 8, device = "svg")
+
+write.xlsx(gsea_results, "./data_output/Oligomycin_vs_IM/Reactomegsea.xlsx")
+
+```
+
+```{r}
+
+cnetplot(gsea_results, foldChange=ordered_genes_fc, showCategory = 50,
+         cex_label_category = .5, cex_label_gene = .5)
+```
+
+
+#### KEGG
+
+```{r, fig.height=8, fig.width=7}
+
+gsea_results <- GSEA(
+  geneList = ordered_genes_fc, 
+  pvalueCutoff = 0.05, 
+  eps = 0, 
+  pAdjustMethod = "BH", 
+  nPermSimple = 10000,
+  TERM2GENE = dplyr::select(
+    hsa_kegg_sets,
+    gs_name,
+    gene_symbol
+  )
+)
+
+dotplot(gsea_results, x = "NES", showCategory = 30, font.size = 7)+ 
+  labs(title = "GSEA",
+              subtitle = "GSEA KEGG Oligomycin vs imaging media")+
+   theme(axis.line = element_line(color='black'),
+    plot.background = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank())
+
+ggsave(plot = last_plot(), "./figures/Oligomycin_vs_IM/KEGGgsea.svg", dpi = 300,
+       height = 8, width = 8, device = "svg")
+
+write.xlsx(gsea_results, "./data_output/Oligomycin_vs_IM/KEGGgsea.xlsx")
+
+```
+
+
+```{r}
+
+cnetplot(gsea_results, foldChange=ordered_genes_fc, showCategory = 50,
+         cex_label_category = .5, cex_label_gene = .5)
+```
+
+#### Wikipathways
+
+```{r, fig.height=8, fig.width=7}
+
+gsea_results <- GSEA(
+  geneList = ordered_genes_fc, 
+  pvalueCutoff = 0.05, 
+  eps = 0, 
+  pAdjustMethod = "BH", 
+  nPermSimple = 10000,
+  TERM2GENE = dplyr::select(
+    hsa_wiki_sets,
+    gs_name,
+    gene_symbol
+  )
+)
+
+dotplot(gsea_results, x = "NES", showCategory = 30, font.size = 7)+ 
+  labs(title = "GSEA",
+              subtitle = "GSEA Wikipathways Oligomycin vs imaging media")+
+   theme(axis.line = element_line(color='black'),
+    plot.background = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank())
+
+ggsave(plot = last_plot(), "./figures/Oligomycin_vs_IM/wikigsea.svg", dpi = 300,
+       height = 8, width = 8, device = "svg")
+
+write.xlsx(gsea_results, "./data_output/Oligomycin_vs_IM/wikigsea.xlsx")
+
+```
+
+
+```{r}
+
+cnetplot(gsea_results, foldChange=ordered_genes_fc, showCategory = 50,
+         cex_label_category = .5, cex_label_gene = .5)
+```
+
+## EGF vs IM
+```{r}
+## EGFIM-----------------------------------------------------------------------
+
+res <- results(dds, name = "condition_IM_EGF_pos_vs_IM")
+res_tbl <- as_tibble(res, rownames="ensembl")
+
+# Import annotation file
+
+ensembl_to_geneName <- readRDS("./data/hsapiens_annotations_230510.rds") %>% 
+  filter(!duplicated(gene, drop = F))
+
+# Add gene names and entrez id to your results
+
+res_tbl <- res_tbl %>%
+  left_join(ensembl_to_geneName) %>%
+  arrange(padj) 
+
+write.csv(res_tbl,"./data_output/EGF_pos_vs_IM/res_tbl.csv", row.names = T)
+
+# plotMA(res) # looks good
+
+# Save the signif genes
+
+overexpr <- res_tbl %>% filter(padj<=0.05 & log2FoldChange>=1) 
+underexpr <- res_tbl %>% filter(padj<=0.05 & log2FoldChange<=-1)
+signif <- full_join(overexpr, underexpr)
+
+write.xlsx(overexpr, file="./data_output/EGF_pos_vs_IM/Sign_genes.xlsx", sheetName="UP")
+write.xlsx(underexpr, file="./data_output/EGF_pos_vs_IM/Sign_genes.xlsx", sheetName="DOWN", append=TRUE)
+write.xlsx(signif, file="./data_output/EGF_pos_vs_IM/Sign_genes.xlsx", sheetName="SIGNIF", append=TRUE)
+
+```
+
+### Volcano plot
+
+```{r, fig.height=6, fig.width=8}
+
+# Volcano plot
+
+p2 =
+res_tbl %>%
+  filter(!is.na(padj)) %>%
+  ggplot(aes(x = log2FoldChange, y = -log10(padj),
+             color = padj < 0.05 & abs(log2FoldChange) > 1, 
+             label = ifelse(padj<0.05&log2FoldChange>=1|
+                              padj<0.05&log2FoldChange<=-1,as.character(gene),''))) +
+  scale_colour_manual(values = c("gray", "firebrick3")) +
+  labs(col="Significantly expressed")+
+  geom_point(size = 0.5) +
+  geom_hline(yintercept = -log10(0.05)) +
+  geom_vline(xintercept = 1) +
+  geom_vline(xintercept = -1)+
+  geom_text_repel(max.overlaps = 15,
+                  box.padding = 0.25,
+                  segment.color = 'grey50',
+                  fontface = "italic")+
+  labs(title = "EGF_pos_vs_IM")+
+  theme_bw()
+
+print(p2)
+
+ggsave("./figures/EGF_pos_vs_IM/volcanoplot.png", last_plot(), dpi= 500, width = 12, height = 8)
+
+```
+
+### GSEA analysis (logFc)
+
+```{r}
+
+ordered_genes_fc <- res_tbl$log2FoldChange
+names(ordered_genes_fc) <- res_tbl$gene
+ordered_genes_fc <- sort(ordered_genes_fc, decreasing = T)
+
+```
+
+#### GOBP
+
+```{r, fig.height=8, fig.width=7}
+
+gsea_results <- GSEA(
+  geneList = ordered_genes_fc, 
+  pvalueCutoff = 0.1, 
+  eps = 0, 
+  pAdjustMethod = "BH", 
+  nPermSimple = 10000,
+  TERM2GENE = dplyr::select(
+    hsa_GOBP_sets,
+    gs_name,
+    gene_symbol
+  )
+)
+
+dotplot(gsea_results, x = "NES", showCategory = 30, font.size = 7)+ 
+  labs(title = "GSEA",
+              subtitle = "GSEA GO:BP Imaging media EGF+ vs -")+
+   theme(axis.line = element_line(color='black'),
+    plot.background = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank())
+
+ggsave(plot = last_plot(), "./figures/EGF_pos_vs_IM/GOBPgsea.svg", dpi = 300,
+       height = 8, width = 8, device = "svg")
+
+write.xlsx(gsea_results, "./data_output/EGF_pos_vs_IM/GOBPgsea.xlsx")
+
+```
+
+```{r}
+
+cnetplot(gsea_results, foldChange=ordered_genes_fc, showCategory = 50,
+         cex_label_category = .5, cex_label_gene = .5)
+```
+
+#### GOMF
+
+```{r, fig.height=8, fig.width=7}
+
+gsea_results <- GSEA(
+  geneList = ordered_genes_fc, 
+  pvalueCutoff = 0.05, 
+  eps = 0, 
+  pAdjustMethod = "BH", 
+  nPermSimple = 10000,
+  TERM2GENE = dplyr::select(
+    hsa_GOMF_sets,
+    gs_name,
+    gene_symbol
+  )
+)
+
+dotplot(gsea_results, x = "NES", showCategory = 30, font.size = 7)+ 
+  labs(title = "GSEA",
+              subtitle = "GSEA GO:MF Imaging media EGF+ vs -")+
+   theme(axis.line = element_line(color='black'),
+    plot.background = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank())
+
+ggsave(plot = last_plot(), "./figures/EGF_pos_vs_IM/GOMFgsea.svg", dpi = 300,
+       height = 8, width = 8, device = "svg")
+
+write.xlsx(gsea_results, "./data_output/EGF_pos_vs_IM/GOMFgsea.xlsx")
+
+```
+
+```{r}
+
+cnetplot(gsea_results, foldChange=ordered_genes_fc, showCategory = 50,
+         cex_label_category = .5, cex_label_gene = .5)
+```
+
+#### Reactome
+
+```{r, fig.height=8, fig.width=7}
+
+gsea_results <- GSEA(
+  geneList = ordered_genes_fc, 
+  pvalueCutoff = 0.05, 
+  eps = 0, 
+  pAdjustMethod = "BH", 
+  nPermSimple = 10000,
+  TERM2GENE = dplyr::select(
+    hsa_reactome_sets,
+    gs_name,
+    gene_symbol
+  )
+)
+
+dotplot(gsea_results, x = "NES", showCategory = 30, font.size = 7)+ 
+  labs(title = "GSEA",
+              subtitle = "GSEA Reactome Imaging media EGF+ vs -")+
+   theme(axis.line = element_line(color='black'),
+    plot.background = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank())
+
+ggsave(plot = last_plot(), "./figures/EGF_pos_vs_IM/Reactomegsea.svg", dpi = 300, height = 8, width = 8, device = "svg")
+
+write.xlsx(gsea_results, "./data_output/EGF_pos_vs_IM/Reactomegsea.xlsx")
+
+```
+
+```{r}
+
+cnetplot(gsea_results, foldChange=ordered_genes_fc, showCategory = 50,
+         cex_label_category = .5, cex_label_gene = .5)
+```
+
+#### KEGG
+
+```{r, fig.height=8, fig.width=7}
+
+gsea_results <- GSEA(
+  geneList = ordered_genes_fc, 
+  pvalueCutoff = 0.05, 
+  eps = 0, 
+  pAdjustMethod = "BH", 
+  nPermSimple = 10000,
+  TERM2GENE = dplyr::select(
+    hsa_kegg_sets,
+    gs_name,
+    gene_symbol
+  )
+)
+
+dotplot(gsea_results, x = "NES", showCategory = 30, font.size = 7)+ 
+  labs(title = "GSEA",
+              subtitle = "GSEA KEGG Imaging media EGF+ vs -")+
+   theme(axis.line = element_line(color='black'),
+    plot.background = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank())
+
+ggsave(plot = last_plot(), "./figures/EGF_pos_vs_IM/KEGGgsea.svg", dpi = 300,
+       height = 8, width = 8, device = "svg")
+
+write.xlsx(gsea_results, "./data_output/EGF_pos_vs_IM/KEGGgsea.xlsx")
+
+```
+
+
+```{r}
+
+cnetplot(gsea_results, foldChange=ordered_genes_fc, showCategory = 50,
+         cex_label_category = .5, cex_label_gene = .5)
+```
+
+#### Wikipathways
+
+```{r, fig.height=8, fig.width=7}
+
+gsea_results <- GSEA(
+  geneList = ordered_genes_fc, 
+  pvalueCutoff = 0.05, 
+  eps = 0, 
+  pAdjustMethod = "BH", 
+  nPermSimple = 10000,
+  TERM2GENE = dplyr::select(
+    hsa_wiki_sets,
+    gs_name,
+    gene_symbol
+  )
+)
+
+dotplot(gsea_results, x = "NES", showCategory = 30, font.size = 7)+ 
+  labs(title = "GSEA",
+              subtitle = "GSEA Wikipathways Imaging media EGF+ vs -")+
+   theme(axis.line = element_line(color='black'),
+    plot.background = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank())
+
+ggsave(plot = last_plot(), "./figures/EGF_pos_vs_IM/wikigsea.svg", dpi = 300,
+       height = 8, width = 8, device = "svg")
+
+write.xlsx(gsea_results, "./data_output/EGF_pos_vs_IM/wikigsea.xlsx")
+
+```
+
+
+```{r}
+
+cnetplot(gsea_results, foldChange=ordered_genes_fc, showCategory = 50,
+         cex_label_category = .5, cex_label_gene = .5)
+```
+
+## Oligomycin vs EGF
+
+```{r}
+## OMEGF-----------------------------------------------------------------------
+# Generate a linear model
+
+dds$condition <- relevel(dds$condition, "IM_EGF_pos")
+dds <- DESeq(dds)
+saveRDS(dds, file = "./data_output/All_vs_IM_EGF_dds.rds")
+
+resultsNames(dds) %>% 
+  knitr::kable()
+
+res <- results(dds, name = "condition_Oligomycin_vs_IM_EGF_pos")
+res_tbl <- as_tibble(res, rownames="ensembl")
+
+# Import annotation file
+
+ensembl_to_geneName <- readRDS("./data/hsapiens_annotations_230510.rds") %>% 
+  filter(!duplicated(gene, drop = F))
+
+# Add gene names and entrez id to your results
+
+res_tbl <- res_tbl %>%
+  left_join(ensembl_to_geneName) %>%
+  arrange(padj) 
+
+write.csv(res_tbl,"./data_output/Oligomycin_vs_IM_EGF_pos/res_tbl.csv", row.names = T)
+
+# plotMA(res) # looks good
+
+# Save the signif genes
+
+overexpr <- res_tbl %>% filter(padj<=0.05 & log2FoldChange>=1) 
+underexpr <- res_tbl %>% filter(padj<=0.05 & log2FoldChange<=-1)
+signif <- full_join(overexpr, underexpr)
+
+write.xlsx(overexpr, file="./data_output/Oligomycin_vs_IM_EGF_pos/Sign_genes.xlsx", sheetName="UP")
+write.xlsx(underexpr, file="./data_output/Oligomycin_vs_IM_EGF_pos/Sign_genes.xlsx", sheetName="DOWN", append=TRUE)
+write.xlsx(signif, file="./data_output/Oligomycin_vs_IM_EGF_pos/Sign_genes.xlsx", sheetName="SIGNIF", append=TRUE)
+
+```
+
+### Volcano plot
+
+```{r, fig.height=6, fig.width=8}
+
+# Volcano plot
+
+p3 =
+res_tbl %>%
+  filter(!is.na(padj)) %>%
+  ggplot(aes(x = log2FoldChange, y = -log10(padj),
+             color = padj < 0.05 & abs(log2FoldChange) > 1, 
+             label = ifelse(padj<0.05&log2FoldChange>=1|
+                              padj<0.05&log2FoldChange<=-1,as.character(gene),''))) +
+  scale_colour_manual(values = c("gray", "firebrick3")) +
+  labs(col="Significantly expressed")+
+  geom_point(size = 0.5) +
+  geom_hline(yintercept = -log10(0.05)) +
+  geom_vline(xintercept = 1) +
+  geom_vline(xintercept = -1)+
+  geom_text_repel(max.overlaps = 15,
+                  box.padding = 0.25,
+                  segment.color = 'grey50',
+                  fontface = "italic")+
+  labs(title = "Oligomycin_vs_IM_EGF_pos")+
+  theme_bw()
+
+print(p3)
+
+ggsave("./figures/Oligomycin_vs_IM_EGF_pos/volcanoplot.png", last_plot(), dpi= 500, width = 12, height = 8)
+
+```
+
+### GSEA analysis (logFc)
+
+```{r}
+
+ordered_genes_fc <- res_tbl$log2FoldChange
+names(ordered_genes_fc) <- res_tbl$gene
+ordered_genes_fc <- sort(ordered_genes_fc, decreasing = T)
+
+```
+
+##### GOBP
+
+```{r, fig.height=8, fig.width=7}
+
+gsea_results <- GSEA(
+  geneList = ordered_genes_fc, 
+  pvalueCutoff = 0.1, 
+  eps = 0, 
+  pAdjustMethod = "BH", 
+  nPermSimple = 10000,
+  TERM2GENE = dplyr::select(
+    hsa_GOBP_sets,
+    gs_name,
+    gene_symbol
+  )
+)
+
+dotplot(gsea_results, x = "NES", showCategory = 30, font.size = 7)+ 
+  labs(title = "GSEA",
+              subtitle = "GSEA GO:BP IM : Oligomycin vs EGF")+
+   theme(axis.line = element_line(color='black'),
+    plot.background = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank())
+
+ggsave(plot = last_plot(), "./figures/Oligomycin_vs_IM_EGF_pos/GOBPgsea.svg", dpi = 300,
+       height = 8, width = 8, device = "svg")
+
+write.xlsx(gsea_results, "./data_output/Oligomycin_vs_IM_EGF_pos/GOBPgsea.xlsx")
+
+```
+
+```{r}
+
+cnetplot(gsea_results, foldChange=ordered_genes_fc, showCategory = 50,
+         cex_label_category = .5, cex_label_gene = .5)
+```
+
+##### GOMF
+
+```{r, fig.height=3, fig.width=7}
+
+gsea_results <- GSEA(
+  geneList = ordered_genes_fc, 
+  pvalueCutoff = 0.05, 
+  eps = 0, 
+  pAdjustMethod = "BH", 
+  nPermSimple = 10000,
+  TERM2GENE = dplyr::select(
+    hsa_GOMF_sets,
+    gs_name,
+    gene_symbol
+  )
+)
+
+dotplot(gsea_results, x = "NES", showCategory = 30, font.size = 7)+ 
+  labs(title = "GSEA",
+              subtitle = "GSEA GO:MF IM : Oligomycin vs EGF")+
+   theme(axis.line = element_line(color='black'),
+    plot.background = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank())
+
+ggsave(plot = last_plot(), "./figures/Oligomycin_vs_IM_EGF_pos/GOMFgsea.svg", dpi = 300,
+       height = 8, width = 8, device = "svg")
+
+write.xlsx(gsea_results, "./data_output/Oligomycin_vs_IM_EGF_pos/GOMFgsea.xlsx")
+
+```
+
+```{r}
+
+cnetplot(gsea_results, foldChange=ordered_genes_fc, showCategory = 50,
+         cex_label_category = .5, cex_label_gene = .5)
+```
+
+##### Reactome
+
+```{r, fig.height=8, fig.width=7}
+
+gsea_results <- GSEA(
+  geneList = ordered_genes_fc, 
+  pvalueCutoff = 0.05, 
+  eps = 0, 
+  pAdjustMethod = "BH", 
+  nPermSimple = 10000,
+  TERM2GENE = dplyr::select(
+    hsa_reactome_sets,
+    gs_name,
+    gene_symbol
+  )
+)
+
+dotplot(gsea_results, x = "NES", showCategory = 30, font.size = 7)+ 
+  labs(title = "GSEA",
+              subtitle = "GSEA Reactome IM : Oligomycin vs EGF")+
+   theme(axis.line = element_line(color='black'),
+    plot.background = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank())
+
+ggsave(plot = last_plot(), "./figures/Oligomycin_vs_IM_EGF_pos/Reactomegsea.svg", dpi = 300, height = 8, width = 8, device = "svg")
+
+write.xlsx(gsea_results, "./data_output/Oligomycin_vs_IM_EGF_pos/Reactomegsea.xlsx")
+
+```
+
+```{r}
+
+cnetplot(gsea_results, foldChange=ordered_genes_fc, showCategory = 50,
+         cex_label_category = .5, cex_label_gene = .5)
+```
+
+##### KEGG
+
+```{r, fig.height=4, fig.width=7}
+
+gsea_results <- GSEA(
+  geneList = ordered_genes_fc, 
+  pvalueCutoff = 0.05, 
+  eps = 0, 
+  pAdjustMethod = "BH", 
+  nPermSimple = 10000,
+  TERM2GENE = dplyr::select(
+    hsa_kegg_sets,
+    gs_name,
+    gene_symbol
+  )
+)
+
+dotplot(gsea_results, x = "NES", showCategory = 30, font.size = 7)+ 
+  labs(title = "GSEA",
+              subtitle = "GSEA KEGG IM : Oligomycin vs EGF")+
+   theme(axis.line = element_line(color='black'),
+    plot.background = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank())
+
+ggsave(plot = last_plot(), "./figures/Oligomycin_vs_IM_EGF_pos/KEGGgsea.svg", dpi = 300,
+       height = 8, width = 8, device = "svg")
+
+write.xlsx(gsea_results, "./data_output/Oligomycin_vs_IM_EGF_pos/KEGGgsea.xlsx")
+
+```
+
+
+```{r}
+
+cnetplot(gsea_results, foldChange=ordered_genes_fc, showCategory = 50,
+         cex_label_category = .5, cex_label_gene = .5)
+```
+
+
+##### Wikipathways
+
+```{r, fig.height=3, fig.width=7}
+
+gsea_results <- GSEA(
+  geneList = ordered_genes_fc, 
+  pvalueCutoff = 0.05, 
+  eps = 0, 
+  pAdjustMethod = "BH", 
+  nPermSimple = 10000,
+  TERM2GENE = dplyr::select(
+    hsa_wiki_sets,
+    gs_name,
+    gene_symbol
+  )
+)
+
+dotplot(gsea_results, x = "NES", showCategory = 30, font.size = 7)+ 
+  labs(title = "GSEA",
+              subtitle = "GSEA Wikipathways IM : Oligomycin vs EGF")+
+   theme(axis.line = element_line(color='black'),
+    plot.background = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank())
+
+ggsave(plot = last_plot(), "./figures/Oligomycin_vs_IM_EGF_pos/wikigsea.svg", dpi = 300,
+       height = 8, width = 8, device = "svg")
+
+write.xlsx(gsea_results, "./data_output/Oligomycin_vs_IM_EGF_pos/wikigsea.xlsx")
+
+```
+
+
+```{r}
+
+cnetplot(gsea_results, foldChange=ordered_genes_fc, showCategory = 50,
+         cex_label_category = .5, cex_label_gene = .5)
+```
+
+
+```{r, fig.height=12, fig.width=16}
+plot_grid(p1, p2, p3, ncol = 2, nrow = 2, align = "hv")
+```
+
+
+
+```{r}
+sessionInfo()
+```

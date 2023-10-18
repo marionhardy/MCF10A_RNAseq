@@ -1,0 +1,1167 @@
+---
+title: "MCF10A metabolism screen"
+author: "Marion Hardy"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    toc: true 
+    theme: spacelab 
+    highlight: monochrome
+editor_options: 
+  chunk_output_type: console
+  markdown: 
+    wrap: 72
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message = FALSE, cache = TRUE, echo = FALSE, warning = F, cache.lazy = F)
+knitr::opts_chunk$set(fig.width=10, fig.height=15) 
+
+library(RColorBrewer)
+library(tidyverse)
+library(DESeq2)
+library(tidyverse)
+library(cowplot)
+library(biomaRt)
+library(ggrepel)
+library(RColorBrewer)
+library(pheatmap)
+library(xlsx)
+library(msigdbr)
+library(clusterProfiler)
+
+```
+
+```{r Data loading, include=FALSE}
+
+counts <- as.data.frame(read.csv("./data/MCF10A_counts.csv", row.names = 1))
+coldata = read.csv("./data/coldata.csv")
+counts = counts[,-1]
+
+ensembl_to_geneName <- readRDS("./data/hsapiens_annotations_230510.rds") %>% 
+  filter(!duplicated(gene, drop = F))
+
+dir = getwd()
+```
+
+```{r}
+
+# MsigDb
+
+hsa_GOBP_sets <- msigdbr(
+  species = "Homo sapiens", 
+  category = "C5",
+  subcategory = "GO:BP")
+
+hsa_GOMF_sets <- msigdbr(
+  species = "Homo sapiens", 
+  category = "C5",
+  subcategory = "GO:MF")
+
+hsa_GOCC_sets <- msigdbr(
+  species = "Homo sapiens", 
+  category = "C5",
+  subcategory = "GO:CC") 
+
+hsa_reactome_sets <- msigdbr(
+  species = "Homo sapiens", 
+  category = "C2",
+  subcategory = "CP:REACTOME") # for reactome collection
+
+hsa_kegg_sets <- msigdbr(
+  species = "Homo sapiens", 
+  category = "C2",
+  subcategory = "CP:KEGG") # for KEGG collection
+
+hsa_wiki_sets <- msigdbr(
+  species = "Homo sapiens", 
+  category = "C2",
+  subcategory = "CP:WIKIPATHWAYS") # for Wikipathways collection
+
+set.seed(054057) # for reproducibility
+
+```
+
+
+# Introduction
+
+Analysis of MCF10A in 16 different conditions 2 biological replicates
+per sample
+
+# Make all dds objects
+
+```{r}
+
+dds <- DESeqDataSetFromMatrix(countData = counts, colData = coldata,
+                              design = ~condition+replicate) 
+
+# Generate a bunch of linear models
+
+dds$condition <- relevel(dds$condition, "IM")
+dds <- DESeq(dds)
+saveRDS(dds, file = "./data_output/All_vs_IM_dds.rds")
+
+# dds$condition <- relevel(dds$condition, "Growth_Medium")
+# dds <- DESeq(dds)
+# saveRDS(dds, file = "./data_output/All_vs_GM_dds.rds")
+# 
+# dds$condition <- relevel(dds$condition, "Oligomycin")
+# dds <- DESeq(dds)
+# saveRDS(dds, file = "./data_output/All_vs_Oligomycin_dds.rds")
+# 
+# dds$condition <- relevel(dds$condition, "IM_HC_neg")
+# dds <- DESeq(dds)
+# saveRDS(dds, file = "./data_output/All_vs_HC_neg_IM_dds.rds")
+# 
+# dds$condition <- relevel(dds$condition, "IM_CT_neg")
+# dds <- DESeq(dds)
+# saveRDS(dds, file = "./data_output/All_vs_IM_CT_neg_dds.rds")
+
+```
+
+## Compared to imaging media
+
+```{r, fig.show="hold", out.width="30%"}
+
+for (i in 2:16){
+    cond = resultsNames(dds)[i]
+    name = gsub("condition_","",resultsNames(dds)[i])
+    
+    res <- results(dds, name = cond)
+    res_tbl <- as_tibble(res, rownames="ensembl")
+    res_tbl <- res_tbl %>%
+    left_join(ensembl_to_geneName) %>%
+    arrange(padj) 
+    dir.create(paste0(dir,'/data_output/',name))
+    dir.create(paste0(dir,'/figures/',name))
+    write.csv(res_tbl, paste0("./data_output/",name,"/res_tbl.csv"), row.names = T)
+    overexpr <- res_tbl %>% filter(padj<=0.05 & log2FoldChange>=1) 
+    underexpr <- res_tbl %>% filter(padj<=0.05 & log2FoldChange<=-1)
+    signif <- full_join(overexpr, underexpr)
+  
+    write.xlsx(overexpr, file= paste0("./data_output/",name,"/Sign_genes.xlsx"), sheetName="UP")
+    write.xlsx(underexpr, file=paste0("./data_output/",name,"/Sign_genes.xlsx"), sheetName="DOWN", append=TRUE)
+    write.xlsx(signif, file=paste0("./data_output/",name,"/Sign_genes.xlsx"), sheetName="SIGNIF", append=TRUE)
+    
+    p1 =
+  res_tbl %>%
+    filter(!is.na(padj)) %>%
+    ggplot(aes(x = log2FoldChange, y = -log10(padj),
+               color = padj < 0.05 & abs(log2FoldChange) > 1, 
+               label = ifelse(padj<0.05&log2FoldChange>=1|
+                                padj<0.05&log2FoldChange<=-1,as.character(gene),''))) +
+    scale_colour_manual(values = c("gray", "firebrick3")) +
+    labs(col="Significantly expressed")+
+    geom_point(size = 0.5) +
+    geom_hline(yintercept = -log10(0.05)) +
+    geom_vline(xintercept = 1) +
+    geom_vline(xintercept = -1)+
+    geom_text_repel(max.overlaps = 15,
+                    box.padding = 0.25,
+                    segment.color = 'grey50',
+                    fontface = "italic")+
+    labs(title = name)+
+    theme_bw()
+  
+  print(p1)
+  
+    ggsave(paste0("./figures/",name,"/volcanoplot.svg"), last_plot(), 
+           dpi= 500, width = 12, height = 8)
+  
+    
+    ordered_genes_fc <- res_tbl$log2FoldChange
+    names(ordered_genes_fc) <- res_tbl$gene
+    ordered_genes_fc <- sort(ordered_genes_fc, decreasing = T)
+  
+  try(gsea_results <- GSEA(
+    geneList = ordered_genes_fc, 
+    pvalueCutoff = 0.05, 
+    eps = 0, 
+    pAdjustMethod = "BH", 
+    nPermSimple = 10000,
+    TERM2GENE = dplyr::select(
+      hsa_GOBP_sets,
+      gs_name,
+      gene_symbol
+    )
+  ))
+  
+ try(dotplot(gsea_results, x = "NES", showCategory = 30, font.size = 7)+ 
+    labs(title = "GSEA",
+                subtitle = paste0("GSEA GO:BP ",name))+
+     theme(axis.line = element_line(color='black'),
+      plot.background = element_blank(),
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank()))
+  
+  ggsave(plot = last_plot(), paste0("./figures/",name,"/GOBPgsea.svg"), dpi = 300,
+         height = 8, width = 8, device = "svg")
+  
+  try(write.xlsx(gsea_results, paste0("./data_output/",name,"/GOBPgsea.xlsx")))
+    
+  
+    gsea_results <- GSEA(
+    geneList = ordered_genes_fc, 
+    pvalueCutoff = 0.05, 
+    eps = 0, 
+    pAdjustMethod = "BH", 
+    nPermSimple = 10000,
+    TERM2GENE = dplyr::select(
+      hsa_GOMF_sets,
+      gs_name,
+      gene_symbol
+    )
+  )
+  
+  try(dotplot(gsea_results, x = "NES", showCategory = 30, font.size = 7)+ 
+    labs(title = "GSEA",
+                subtitle = paste0("GSEA GO:MF ",name))+
+     theme(axis.line = element_line(color='black'),
+      plot.background = element_blank(),
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank()))
+  
+  try(ggsave(plot = last_plot(), paste0("./figures/",name,"/GOMFgsea.svg"), dpi = 300,
+         height = 8, width = 8, device = "svg"))
+  
+  try(write.xlsx(gsea_results, paste0("./data_output/",name,"/GOMFgsea.xlsx")))
+    
+  
+    gsea_results <- GSEA(
+    geneList = ordered_genes_fc, 
+    pvalueCutoff = 0.05, 
+    eps = 0, 
+    pAdjustMethod = "BH", 
+    nPermSimple = 10000,
+    TERM2GENE = dplyr::select(
+      hsa_reactome_sets,
+      gs_name,
+      gene_symbol
+    )
+  )
+  
+  try(dotplot(gsea_results, x = "NES", showCategory = 30, font.size = 7)+ 
+    labs(title = "GSEA",
+                subtitle = paste0("GSEA Reactome ",name))+
+     theme(axis.line = element_line(color='black'),
+      plot.background = element_blank(),
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank()))
+  
+  try(ggsave(plot = last_plot(), paste0("./figures/",name,"/Reactomegsea.svg"), dpi = 300,
+         height = 8, width = 8, device = "svg"))
+  
+  try(write.xlsx(gsea_results, paste0("./data_output/",name,"/Reactomegsea.xlsx")))
+  
+    gsea_results <- GSEA(
+    geneList = ordered_genes_fc, 
+    pvalueCutoff = 0.05, 
+    eps = 0, 
+    pAdjustMethod = "BH", 
+    nPermSimple = 10000,
+    TERM2GENE = dplyr::select(
+      hsa_wiki_sets,
+      gs_name,
+      gene_symbol)
+    )
+  
+  try(dotplot(gsea_results, x = "NES", showCategory = 30, font.size = 7)+ 
+    labs(title = "GSEA",
+                subtitle = paste0("GSEA Wikipathways ",name))+
+     theme(axis.line = element_line(color='black'),
+      plot.background = element_blank(),
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank()))
+  
+  try(ggsave(plot = last_plot(), paste0("./figures/",name,"/Wikipathwaysgsea.svg"), dpi = 300,
+         height = 8, width = 8, device = "svg"))
+  
+ try(write.xlsx(gsea_results, paste0("./data_output/",name,"/Wikipathwaysgsea.xlsx")))
+
+}
+
+
+```
+
+## Compared to Growth Medium
+
+```{r}
+
+dds$condition <- relevel(dds$condition, "Growth_Medium")
+dds <- DESeq(dds)
+saveRDS(dds, file = "./data_output/All_vs_GM_dds.rds")
+
+```
+
+
+```{r, fig.show="hold", out.width="30%"}
+
+for (i in 2:16){
+    cond = resultsNames(dds)[i]
+    name = gsub("condition_","",resultsNames(dds)[i])
+    
+    res <- results(dds, name = cond)
+    res_tbl <- as_tibble(res, rownames="ensembl")
+    res_tbl <- res_tbl %>%
+    left_join(ensembl_to_geneName) %>%
+    arrange(padj) 
+    dir.create(paste0(dir,'/data_output/',name))
+    dir.create(paste0(dir,'/figures/',name))
+    write.csv(res_tbl, paste0("./data_output/",name,"/res_tbl.csv"), row.names = T)
+    overexpr <- res_tbl %>% filter(padj<=0.05 & log2FoldChange>=1) 
+    underexpr <- res_tbl %>% filter(padj<=0.05 & log2FoldChange<=-1)
+    signif <- full_join(overexpr, underexpr)
+  
+    write.xlsx(overexpr, file= paste0("./data_output/",name,"/Sign_genes.xlsx"), sheetName="UP")
+    write.xlsx(underexpr, file=paste0("./data_output/",name,"/Sign_genes.xlsx"), sheetName="DOWN", append=TRUE)
+    write.xlsx(signif, file=paste0("./data_output/",name,"/Sign_genes.xlsx"), sheetName="SIGNIF", append=TRUE)
+    
+    p1 =
+  res_tbl %>%
+    filter(!is.na(padj)) %>%
+    ggplot(aes(x = log2FoldChange, y = -log10(padj),
+               color = padj < 0.05 & abs(log2FoldChange) > 1, 
+               label = ifelse(padj<0.05&log2FoldChange>=1|
+                                padj<0.05&log2FoldChange<=-1,as.character(gene),''))) +
+    scale_colour_manual(values = c("gray", "firebrick3")) +
+    labs(col="Significantly expressed")+
+    geom_point(size = 0.5) +
+    geom_hline(yintercept = -log10(0.05)) +
+    geom_vline(xintercept = 1) +
+    geom_vline(xintercept = -1)+
+    geom_text_repel(max.overlaps = 15,
+                    box.padding = 0.25,
+                    segment.color = 'grey50',
+                    fontface = "italic")+
+    labs(title = name)+
+    theme_bw()
+  
+  print(p1)
+  
+    ggsave(paste0("./figures/",name,"/volcanoplot.svg"), last_plot(), 
+           dpi= 500, width = 12, height = 8)
+  
+    
+    ordered_genes_fc <- res_tbl$log2FoldChange
+    names(ordered_genes_fc) <- res_tbl$gene
+    ordered_genes_fc <- sort(ordered_genes_fc, decreasing = T)
+  
+  try(gsea_results <- GSEA(
+    geneList = ordered_genes_fc, 
+    pvalueCutoff = 0.05, 
+    eps = 0, 
+    pAdjustMethod = "BH", 
+    nPermSimple = 10000,
+    TERM2GENE = dplyr::select(
+      hsa_GOBP_sets,
+      gs_name,
+      gene_symbol
+    )
+  ))
+  
+ try(dotplot(gsea_results, x = "NES", showCategory = 30, font.size = 7)+ 
+    labs(title = "GSEA",
+                subtitle = paste0("GSEA GO:BP ",name))+
+     theme(axis.line = element_line(color='black'),
+      plot.background = element_blank(),
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank()))
+  
+  ggsave(plot = last_plot(), paste0("./figures/",name,"/GOBPgsea.svg"), dpi = 300,
+         height = 8, width = 8, device = "svg")
+  
+  try(write.xlsx(gsea_results, paste0("./data_output/",name,"/GOBPgsea.xlsx")))
+    
+  
+    gsea_results <- GSEA(
+    geneList = ordered_genes_fc, 
+    pvalueCutoff = 0.05, 
+    eps = 0, 
+    pAdjustMethod = "BH", 
+    nPermSimple = 10000,
+    TERM2GENE = dplyr::select(
+      hsa_GOMF_sets,
+      gs_name,
+      gene_symbol
+    )
+  )
+  
+  try(dotplot(gsea_results, x = "NES", showCategory = 30, font.size = 7)+ 
+    labs(title = "GSEA",
+                subtitle = paste0("GSEA GO:MF ",name))+
+     theme(axis.line = element_line(color='black'),
+      plot.background = element_blank(),
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank()))
+  
+  try(ggsave(plot = last_plot(), paste0("./figures/",name,"/GOMFgsea.svg"), dpi = 300,
+         height = 8, width = 8, device = "svg"))
+  
+  try(write.xlsx(gsea_results, paste0("./data_output/",name,"/GOMFgsea.xlsx")))
+    
+  
+    gsea_results <- GSEA(
+    geneList = ordered_genes_fc, 
+    pvalueCutoff = 0.05, 
+    eps = 0, 
+    pAdjustMethod = "BH", 
+    nPermSimple = 10000,
+    TERM2GENE = dplyr::select(
+      hsa_reactome_sets,
+      gs_name,
+      gene_symbol
+    )
+  )
+  
+  try(dotplot(gsea_results, x = "NES", showCategory = 30, font.size = 7)+ 
+    labs(title = "GSEA",
+                subtitle = paste0("GSEA Reactome ",name))+
+     theme(axis.line = element_line(color='black'),
+      plot.background = element_blank(),
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank()))
+  
+  try(ggsave(plot = last_plot(), paste0("./figures/",name,"/Reactomegsea.svg"), dpi = 300,
+         height = 8, width = 8, device = "svg"))
+  
+  try(write.xlsx(gsea_results, paste0("./data_output/",name,"/Reactomegsea.xlsx")))
+  
+    gsea_results <- GSEA(
+    geneList = ordered_genes_fc, 
+    pvalueCutoff = 0.05, 
+    eps = 0, 
+    pAdjustMethod = "BH", 
+    nPermSimple = 10000,
+    TERM2GENE = dplyr::select(
+      hsa_wiki_sets,
+      gs_name,
+      gene_symbol)
+    )
+  
+  try(dotplot(gsea_results, x = "NES", showCategory = 30, font.size = 7)+ 
+    labs(title = "GSEA",
+                subtitle = paste0("GSEA Wikipathways ",name))+
+     theme(axis.line = element_line(color='black'),
+      plot.background = element_blank(),
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank()))
+  
+  try(ggsave(plot = last_plot(), paste0("./figures/",name,"/Wikipathwaysgsea.svg"), dpi = 300,
+         height = 8, width = 8, device = "svg"))
+  
+ try(write.xlsx(gsea_results, paste0("./data_output/",name,"/Wikipathwaysgsea.xlsx")))
+
+}
+
+
+```
+
+## Compared to Oligomycin
+
+```{r}
+
+dds$condition <- relevel(dds$condition, "Oligomycin")
+dds <- DESeq(dds)
+saveRDS(dds, file = "./data_output/All_vs_Oligomycin_dds.rds")
+
+```
+
+```{r, fig.show="hold", out.width="30%"}
+
+for (i in 2:16){
+    cond = resultsNames(dds)[i]
+    name = gsub("condition_","",resultsNames(dds)[i])
+    
+    res <- results(dds, name = cond)
+    res_tbl <- as_tibble(res, rownames="ensembl")
+    res_tbl <- res_tbl %>%
+    left_join(ensembl_to_geneName) %>%
+    arrange(padj) 
+    dir.create(paste0(dir,'/data_output/',name))
+    dir.create(paste0(dir,'/figures/',name))
+    write.csv(res_tbl, paste0("./data_output/",name,"/res_tbl.csv"), row.names = T)
+    overexpr <- res_tbl %>% filter(padj<=0.05 & log2FoldChange>=1) 
+    underexpr <- res_tbl %>% filter(padj<=0.05 & log2FoldChange<=-1)
+    signif <- full_join(overexpr, underexpr)
+  
+    write.xlsx(overexpr, file= paste0("./data_output/",name,"/Sign_genes.xlsx"), sheetName="UP")
+    write.xlsx(underexpr, file=paste0("./data_output/",name,"/Sign_genes.xlsx"), sheetName="DOWN", append=TRUE)
+    write.xlsx(signif, file=paste0("./data_output/",name,"/Sign_genes.xlsx"), sheetName="SIGNIF", append=TRUE)
+    
+    p1 =
+  res_tbl %>%
+    filter(!is.na(padj)) %>%
+    ggplot(aes(x = log2FoldChange, y = -log10(padj),
+               color = padj < 0.05 & abs(log2FoldChange) > 1, 
+               label = ifelse(padj<0.05&log2FoldChange>=1|
+                                padj<0.05&log2FoldChange<=-1,as.character(gene),''))) +
+    scale_colour_manual(values = c("gray", "firebrick3")) +
+    labs(col="Significantly expressed")+
+    geom_point(size = 0.5) +
+    geom_hline(yintercept = -log10(0.05)) +
+    geom_vline(xintercept = 1) +
+    geom_vline(xintercept = -1)+
+    geom_text_repel(max.overlaps = 15,
+                    box.padding = 0.25,
+                    segment.color = 'grey50',
+                    fontface = "italic")+
+    labs(title = name)+
+    theme_bw()
+  
+  print(p1)
+  
+    ggsave(paste0("./figures/",name,"/volcanoplot.svg"), last_plot(), 
+           dpi= 500, width = 12, height = 8)
+  
+    
+    ordered_genes_fc <- res_tbl$log2FoldChange
+    names(ordered_genes_fc) <- res_tbl$gene
+    ordered_genes_fc <- sort(ordered_genes_fc, decreasing = T)
+  
+  try(gsea_results <- GSEA(
+    geneList = ordered_genes_fc, 
+    pvalueCutoff = 0.05, 
+    eps = 0, 
+    pAdjustMethod = "BH", 
+    nPermSimple = 10000,
+    TERM2GENE = dplyr::select(
+      hsa_GOBP_sets,
+      gs_name,
+      gene_symbol
+    )
+  ))
+  
+ try(dotplot(gsea_results, x = "NES", showCategory = 30, font.size = 7)+ 
+    labs(title = "GSEA",
+                subtitle = paste0("GSEA GO:BP ",name))+
+     theme(axis.line = element_line(color='black'),
+      plot.background = element_blank(),
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank()))
+  
+  ggsave(plot = last_plot(), paste0("./figures/",name,"/GOBPgsea.svg"), dpi = 300,
+         height = 8, width = 8, device = "svg")
+  
+  try(write.xlsx(gsea_results, paste0("./data_output/",name,"/GOBPgsea.xlsx")))
+    
+  
+    gsea_results <- GSEA(
+    geneList = ordered_genes_fc, 
+    pvalueCutoff = 0.05, 
+    eps = 0, 
+    pAdjustMethod = "BH", 
+    nPermSimple = 10000,
+    TERM2GENE = dplyr::select(
+      hsa_GOMF_sets,
+      gs_name,
+      gene_symbol
+    )
+  )
+  
+  try(dotplot(gsea_results, x = "NES", showCategory = 30, font.size = 7)+ 
+    labs(title = "GSEA",
+                subtitle = paste0("GSEA GO:MF ",name))+
+     theme(axis.line = element_line(color='black'),
+      plot.background = element_blank(),
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank()))
+  
+  try(ggsave(plot = last_plot(), paste0("./figures/",name,"/GOMFgsea.svg"), dpi = 300,
+         height = 8, width = 8, device = "svg"))
+  
+  try(write.xlsx(gsea_results, paste0("./data_output/",name,"/GOMFgsea.xlsx")))
+    
+  
+    gsea_results <- GSEA(
+    geneList = ordered_genes_fc, 
+    pvalueCutoff = 0.05, 
+    eps = 0, 
+    pAdjustMethod = "BH", 
+    nPermSimple = 10000,
+    TERM2GENE = dplyr::select(
+      hsa_reactome_sets,
+      gs_name,
+      gene_symbol
+    )
+  )
+  
+  try(dotplot(gsea_results, x = "NES", showCategory = 30, font.size = 7)+ 
+    labs(title = "GSEA",
+                subtitle = paste0("GSEA Reactome ",name))+
+     theme(axis.line = element_line(color='black'),
+      plot.background = element_blank(),
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank()))
+  
+  try(ggsave(plot = last_plot(), paste0("./figures/",name,"/Reactomegsea.svg"), dpi = 300,
+         height = 8, width = 8, device = "svg"))
+  
+  try(write.xlsx(gsea_results, paste0("./data_output/",name,"/Reactomegsea.xlsx")))
+  
+    gsea_results <- GSEA(
+    geneList = ordered_genes_fc, 
+    pvalueCutoff = 0.05, 
+    eps = 0, 
+    pAdjustMethod = "BH", 
+    nPermSimple = 10000,
+    TERM2GENE = dplyr::select(
+      hsa_wiki_sets,
+      gs_name,
+      gene_symbol)
+    )
+  
+  try(dotplot(gsea_results, x = "NES", showCategory = 30, font.size = 7)+ 
+    labs(title = "GSEA",
+                subtitle = paste0("GSEA Wikipathways ",name))+
+     theme(axis.line = element_line(color='black'),
+      plot.background = element_blank(),
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank()))
+  
+  try(ggsave(plot = last_plot(), paste0("./figures/",name,"/Wikipathwaysgsea.svg"), dpi = 300,
+         height = 8, width = 8, device = "svg"))
+  
+ try(write.xlsx(gsea_results, paste0("./data_output/",name,"/Wikipathwaysgsea.xlsx")))
+
+}
+
+
+```
+
+## Compared to HC megative IM
+
+```{r}
+# Generate a bunch of linear models
+
+dds$condition <- relevel(dds$condition, "IM")
+dds <- DESeq(dds)
+saveRDS(dds, file = "./data_output/All_vs_IM_dds.rds")
+
+```
+
+
+```{r, fig.show="hold", out.width="30%"}
+
+for (i in 2:16){
+    cond = resultsNames(dds)[i]
+    name = gsub("condition_","",resultsNames(dds)[i])
+    
+    res <- results(dds, name = cond)
+    res_tbl <- as_tibble(res, rownames="ensembl")
+    res_tbl <- res_tbl %>%
+    left_join(ensembl_to_geneName) %>%
+    arrange(padj) 
+    dir.create(paste0(dir,'/data_output/',name))
+    dir.create(paste0(dir,'/figures/',name))
+    write.csv(res_tbl, paste0("./data_output/",name,"/res_tbl.csv"), row.names = T)
+    overexpr <- res_tbl %>% filter(padj<=0.05 & log2FoldChange>=1) 
+    underexpr <- res_tbl %>% filter(padj<=0.05 & log2FoldChange<=-1)
+    signif <- full_join(overexpr, underexpr)
+  
+    write.xlsx(overexpr, file= paste0("./data_output/",name,"/Sign_genes.xlsx"), sheetName="UP")
+    write.xlsx(underexpr, file=paste0("./data_output/",name,"/Sign_genes.xlsx"), sheetName="DOWN", append=TRUE)
+    write.xlsx(signif, file=paste0("./data_output/",name,"/Sign_genes.xlsx"), sheetName="SIGNIF", append=TRUE)
+    
+    p1 =
+  res_tbl %>%
+    filter(!is.na(padj)) %>%
+    ggplot(aes(x = log2FoldChange, y = -log10(padj),
+               color = padj < 0.05 & abs(log2FoldChange) > 1, 
+               label = ifelse(padj<0.05&log2FoldChange>=1|
+                                padj<0.05&log2FoldChange<=-1,as.character(gene),''))) +
+    scale_colour_manual(values = c("gray", "firebrick3")) +
+    labs(col="Significantly expressed")+
+    geom_point(size = 0.5) +
+    geom_hline(yintercept = -log10(0.05)) +
+    geom_vline(xintercept = 1) +
+    geom_vline(xintercept = -1)+
+    geom_text_repel(max.overlaps = 15,
+                    box.padding = 0.25,
+                    segment.color = 'grey50',
+                    fontface = "italic")+
+    labs(title = name)+
+    theme_bw()
+  
+  print(p1)
+  
+    ggsave(paste0("./figures/",name,"/volcanoplot.svg"), last_plot(), 
+           dpi= 500, width = 12, height = 8)
+  
+    
+    ordered_genes_fc <- res_tbl$log2FoldChange
+    names(ordered_genes_fc) <- res_tbl$gene
+    ordered_genes_fc <- sort(ordered_genes_fc, decreasing = T)
+  
+  try(gsea_results <- GSEA(
+    geneList = ordered_genes_fc, 
+    pvalueCutoff = 0.05, 
+    eps = 0, 
+    pAdjustMethod = "BH", 
+    nPermSimple = 10000,
+    TERM2GENE = dplyr::select(
+      hsa_GOBP_sets,
+      gs_name,
+      gene_symbol
+    )
+  ))
+  
+ try(dotplot(gsea_results, x = "NES", showCategory = 30, font.size = 7)+ 
+    labs(title = "GSEA",
+                subtitle = paste0("GSEA GO:BP ",name))+
+     theme(axis.line = element_line(color='black'),
+      plot.background = element_blank(),
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank()))
+  
+  ggsave(plot = last_plot(), paste0("./figures/",name,"/GOBPgsea.svg"), dpi = 300,
+         height = 8, width = 8, device = "svg")
+  
+  try(write.xlsx(gsea_results, paste0("./data_output/",name,"/GOBPgsea.xlsx")))
+    
+  
+    gsea_results <- GSEA(
+    geneList = ordered_genes_fc, 
+    pvalueCutoff = 0.05, 
+    eps = 0, 
+    pAdjustMethod = "BH", 
+    nPermSimple = 10000,
+    TERM2GENE = dplyr::select(
+      hsa_GOMF_sets,
+      gs_name,
+      gene_symbol
+    )
+  )
+  
+  try(dotplot(gsea_results, x = "NES", showCategory = 30, font.size = 7)+ 
+    labs(title = "GSEA",
+                subtitle = paste0("GSEA GO:MF ",name))+
+     theme(axis.line = element_line(color='black'),
+      plot.background = element_blank(),
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank()))
+  
+  try(ggsave(plot = last_plot(), paste0("./figures/",name,"/GOMFgsea.svg"), dpi = 300,
+         height = 8, width = 8, device = "svg"))
+  
+  try(write.xlsx(gsea_results, paste0("./data_output/",name,"/GOMFgsea.xlsx")))
+    
+  
+    gsea_results <- GSEA(
+    geneList = ordered_genes_fc, 
+    pvalueCutoff = 0.05, 
+    eps = 0, 
+    pAdjustMethod = "BH", 
+    nPermSimple = 10000,
+    TERM2GENE = dplyr::select(
+      hsa_reactome_sets,
+      gs_name,
+      gene_symbol
+    )
+  )
+  
+  try(dotplot(gsea_results, x = "NES", showCategory = 30, font.size = 7)+ 
+    labs(title = "GSEA",
+                subtitle = paste0("GSEA Reactome ",name))+
+     theme(axis.line = element_line(color='black'),
+      plot.background = element_blank(),
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank()))
+  
+  try(ggsave(plot = last_plot(), paste0("./figures/",name,"/Reactomegsea.svg"), dpi = 300,
+         height = 8, width = 8, device = "svg"))
+  
+  try(write.xlsx(gsea_results, paste0("./data_output/",name,"/Reactomegsea.xlsx")))
+  
+    gsea_results <- GSEA(
+    geneList = ordered_genes_fc, 
+    pvalueCutoff = 0.05, 
+    eps = 0, 
+    pAdjustMethod = "BH", 
+    nPermSimple = 10000,
+    TERM2GENE = dplyr::select(
+      hsa_wiki_sets,
+      gs_name,
+      gene_symbol)
+    )
+  
+  try(dotplot(gsea_results, x = "NES", showCategory = 30, font.size = 7)+ 
+    labs(title = "GSEA",
+                subtitle = paste0("GSEA Wikipathways ",name))+
+     theme(axis.line = element_line(color='black'),
+      plot.background = element_blank(),
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank()))
+  
+  try(ggsave(plot = last_plot(), paste0("./figures/",name,"/Wikipathwaysgsea.svg"), dpi = 300,
+         height = 8, width = 8, device = "svg"))
+  
+ try(write.xlsx(gsea_results, paste0("./data_output/",name,"/Wikipathwaysgsea.xlsx")))
+
+}
+
+
+```
+
+
+## Compared to HC megative IM
+
+```{r}
+# Generate a bunch of linear models
+
+dds$condition <- relevel(dds$condition, "IM")
+dds <- DESeq(dds)
+saveRDS(dds, file = "./data_output/All_vs_IM_dds.rds")
+
+```
+
+
+```{r, fig.show="hold", out.width="30%"}
+
+for (i in 2:16){
+    cond = resultsNames(dds)[i]
+    name = gsub("condition_","",resultsNames(dds)[i])
+    
+    res <- results(dds, name = cond)
+    res_tbl <- as_tibble(res, rownames="ensembl")
+    res_tbl <- res_tbl %>%
+    left_join(ensembl_to_geneName) %>%
+    arrange(padj) 
+    dir.create(paste0(dir,'/data_output/',name))
+    dir.create(paste0(dir,'/figures/',name))
+    write.csv(res_tbl, paste0("./data_output/",name,"/res_tbl.csv"), row.names = T)
+    overexpr <- res_tbl %>% filter(padj<=0.05 & log2FoldChange>=1) 
+    underexpr <- res_tbl %>% filter(padj<=0.05 & log2FoldChange<=-1)
+    signif <- full_join(overexpr, underexpr)
+  
+    write.xlsx(overexpr, file= paste0("./data_output/",name,"/Sign_genes.xlsx"), sheetName="UP")
+    write.xlsx(underexpr, file=paste0("./data_output/",name,"/Sign_genes.xlsx"), sheetName="DOWN", append=TRUE)
+    write.xlsx(signif, file=paste0("./data_output/",name,"/Sign_genes.xlsx"), sheetName="SIGNIF", append=TRUE)
+    
+    p1 =
+  res_tbl %>%
+    filter(!is.na(padj)) %>%
+    ggplot(aes(x = log2FoldChange, y = -log10(padj),
+               color = padj < 0.05 & abs(log2FoldChange) > 1, 
+               label = ifelse(padj<0.05&log2FoldChange>=1|
+                                padj<0.05&log2FoldChange<=-1,as.character(gene),''))) +
+    scale_colour_manual(values = c("gray", "firebrick3")) +
+    labs(col="Significantly expressed")+
+    geom_point(size = 0.5) +
+    geom_hline(yintercept = -log10(0.05)) +
+    geom_vline(xintercept = 1) +
+    geom_vline(xintercept = -1)+
+    geom_text_repel(max.overlaps = 15,
+                    box.padding = 0.25,
+                    segment.color = 'grey50',
+                    fontface = "italic")+
+    labs(title = name)+
+    theme_bw()
+  
+  print(p1)
+  
+    ggsave(paste0("./figures/",name,"/volcanoplot.svg"), last_plot(), 
+           dpi= 500, width = 12, height = 8)
+  
+    
+    ordered_genes_fc <- res_tbl$log2FoldChange
+    names(ordered_genes_fc) <- res_tbl$gene
+    ordered_genes_fc <- sort(ordered_genes_fc, decreasing = T)
+  
+  try(gsea_results <- GSEA(
+    geneList = ordered_genes_fc, 
+    pvalueCutoff = 0.05, 
+    eps = 0, 
+    pAdjustMethod = "BH", 
+    nPermSimple = 10000,
+    TERM2GENE = dplyr::select(
+      hsa_GOBP_sets,
+      gs_name,
+      gene_symbol
+    )
+  ))
+  
+ try(dotplot(gsea_results, x = "NES", showCategory = 30, font.size = 7)+ 
+    labs(title = "GSEA",
+                subtitle = paste0("GSEA GO:BP ",name))+
+     theme(axis.line = element_line(color='black'),
+      plot.background = element_blank(),
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank()))
+  
+  ggsave(plot = last_plot(), paste0("./figures/",name,"/GOBPgsea.svg"), dpi = 300,
+         height = 8, width = 8, device = "svg")
+  
+  try(write.xlsx(gsea_results, paste0("./data_output/",name,"/GOBPgsea.xlsx")))
+    
+  
+    gsea_results <- GSEA(
+    geneList = ordered_genes_fc, 
+    pvalueCutoff = 0.05, 
+    eps = 0, 
+    pAdjustMethod = "BH", 
+    nPermSimple = 10000,
+    TERM2GENE = dplyr::select(
+      hsa_GOMF_sets,
+      gs_name,
+      gene_symbol
+    )
+  )
+  
+  try(dotplot(gsea_results, x = "NES", showCategory = 30, font.size = 7)+ 
+    labs(title = "GSEA",
+                subtitle = paste0("GSEA GO:MF ",name))+
+     theme(axis.line = element_line(color='black'),
+      plot.background = element_blank(),
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank()))
+  
+  try(ggsave(plot = last_plot(), paste0("./figures/",name,"/GOMFgsea.svg"), dpi = 300,
+         height = 8, width = 8, device = "svg"))
+  
+  try(write.xlsx(gsea_results, paste0("./data_output/",name,"/GOMFgsea.xlsx")))
+    
+  
+    gsea_results <- GSEA(
+    geneList = ordered_genes_fc, 
+    pvalueCutoff = 0.05, 
+    eps = 0, 
+    pAdjustMethod = "BH", 
+    nPermSimple = 10000,
+    TERM2GENE = dplyr::select(
+      hsa_reactome_sets,
+      gs_name,
+      gene_symbol
+    )
+  )
+  
+  try(dotplot(gsea_results, x = "NES", showCategory = 30, font.size = 7)+ 
+    labs(title = "GSEA",
+                subtitle = paste0("GSEA Reactome ",name))+
+     theme(axis.line = element_line(color='black'),
+      plot.background = element_blank(),
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank()))
+  
+  try(ggsave(plot = last_plot(), paste0("./figures/",name,"/Reactomegsea.svg"), dpi = 300,
+         height = 8, width = 8, device = "svg"))
+  
+  try(write.xlsx(gsea_results, paste0("./data_output/",name,"/Reactomegsea.xlsx")))
+  
+    gsea_results <- GSEA(
+    geneList = ordered_genes_fc, 
+    pvalueCutoff = 0.05, 
+    eps = 0, 
+    pAdjustMethod = "BH", 
+    nPermSimple = 10000,
+    TERM2GENE = dplyr::select(
+      hsa_wiki_sets,
+      gs_name,
+      gene_symbol)
+    )
+  
+  try(dotplot(gsea_results, x = "NES", showCategory = 30, font.size = 7)+ 
+    labs(title = "GSEA",
+                subtitle = paste0("GSEA Wikipathways ",name))+
+     theme(axis.line = element_line(color='black'),
+      plot.background = element_blank(),
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank()))
+  
+  try(ggsave(plot = last_plot(), paste0("./figures/",name,"/Wikipathwaysgsea.svg"), dpi = 300,
+         height = 8, width = 8, device = "svg"))
+  
+ try(write.xlsx(gsea_results, paste0("./data_output/",name,"/Wikipathwaysgsea.xlsx")))
+
+}
+
+
+```
+
+
+## Compared to CT negative imaging medium
+
+```{r}
+
+dds$condition <- relevel(dds$condition, "IM_CT_neg")
+dds <- DESeq(dds)
+saveRDS(dds, file = "./data_output/All_vs_IM_CT_neg_dds.rds")
+
+```
+
+
+```{r, fig.show="hold", out.width="30%"}
+
+for (i in 2:16){
+    cond = resultsNames(dds)[i]
+    name = gsub("condition_","",resultsNames(dds)[i])
+    
+    res <- results(dds, name = cond)
+    res_tbl <- as_tibble(res, rownames="ensembl")
+    res_tbl <- res_tbl %>%
+    left_join(ensembl_to_geneName) %>%
+    arrange(padj) 
+    dir.create(paste0(dir,'/data_output/',name))
+    dir.create(paste0(dir,'/figures/',name))
+    write.csv(res_tbl, paste0("./data_output/",name,"/res_tbl.csv"), row.names = T)
+    overexpr <- res_tbl %>% filter(padj<=0.05 & log2FoldChange>=1) 
+    underexpr <- res_tbl %>% filter(padj<=0.05 & log2FoldChange<=-1)
+    signif <- full_join(overexpr, underexpr)
+  
+    write.xlsx(overexpr, file= paste0("./data_output/",name,"/Sign_genes.xlsx"), sheetName="UP")
+    write.xlsx(underexpr, file=paste0("./data_output/",name,"/Sign_genes.xlsx"), sheetName="DOWN", append=TRUE)
+    write.xlsx(signif, file=paste0("./data_output/",name,"/Sign_genes.xlsx"), sheetName="SIGNIF", append=TRUE)
+    
+    p1 =
+  res_tbl %>%
+    filter(!is.na(padj)) %>%
+    ggplot(aes(x = log2FoldChange, y = -log10(padj),
+               color = padj < 0.05 & abs(log2FoldChange) > 1, 
+               label = ifelse(padj<0.05&log2FoldChange>=1|
+                                padj<0.05&log2FoldChange<=-1,as.character(gene),''))) +
+    scale_colour_manual(values = c("gray", "firebrick3")) +
+    labs(col="Significantly expressed")+
+    geom_point(size = 0.5) +
+    geom_hline(yintercept = -log10(0.05)) +
+    geom_vline(xintercept = 1) +
+    geom_vline(xintercept = -1)+
+    geom_text_repel(max.overlaps = 15,
+                    box.padding = 0.25,
+                    segment.color = 'grey50',
+                    fontface = "italic")+
+    labs(title = name)+
+    theme_bw()
+  
+  print(p1)
+  
+    ggsave(paste0("./figures/",name,"/volcanoplot.svg"), last_plot(), 
+           dpi= 500, width = 12, height = 8)
+  
+    
+    ordered_genes_fc <- res_tbl$log2FoldChange
+    names(ordered_genes_fc) <- res_tbl$gene
+    ordered_genes_fc <- sort(ordered_genes_fc, decreasing = T)
+  
+  try(gsea_results <- GSEA(
+    geneList = ordered_genes_fc, 
+    pvalueCutoff = 0.05, 
+    eps = 0, 
+    pAdjustMethod = "BH", 
+    nPermSimple = 10000,
+    TERM2GENE = dplyr::select(
+      hsa_GOBP_sets,
+      gs_name,
+      gene_symbol
+    )
+  ))
+  
+ try(dotplot(gsea_results, x = "NES", showCategory = 30, font.size = 7)+ 
+    labs(title = "GSEA",
+                subtitle = paste0("GSEA GO:BP ",name))+
+     theme(axis.line = element_line(color='black'),
+      plot.background = element_blank(),
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank()))
+  
+  ggsave(plot = last_plot(), paste0("./figures/",name,"/GOBPgsea.svg"), dpi = 300,
+         height = 8, width = 8, device = "svg")
+  
+  try(write.xlsx(gsea_results, paste0("./data_output/",name,"/GOBPgsea.xlsx")))
+    
+  
+    gsea_results <- GSEA(
+    geneList = ordered_genes_fc, 
+    pvalueCutoff = 0.05, 
+    eps = 0, 
+    pAdjustMethod = "BH", 
+    nPermSimple = 10000,
+    TERM2GENE = dplyr::select(
+      hsa_GOMF_sets,
+      gs_name,
+      gene_symbol
+    )
+  )
+  
+  try(dotplot(gsea_results, x = "NES", showCategory = 30, font.size = 7)+ 
+    labs(title = "GSEA",
+                subtitle = paste0("GSEA GO:MF ",name))+
+     theme(axis.line = element_line(color='black'),
+      plot.background = element_blank(),
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank()))
+  
+  try(ggsave(plot = last_plot(), paste0("./figures/",name,"/GOMFgsea.svg"), dpi = 300,
+         height = 8, width = 8, device = "svg"))
+  
+  try(write.xlsx(gsea_results, paste0("./data_output/",name,"/GOMFgsea.xlsx")))
+    
+  
+    gsea_results <- GSEA(
+    geneList = ordered_genes_fc, 
+    pvalueCutoff = 0.05, 
+    eps = 0, 
+    pAdjustMethod = "BH", 
+    nPermSimple = 10000,
+    TERM2GENE = dplyr::select(
+      hsa_reactome_sets,
+      gs_name,
+      gene_symbol
+    )
+  )
+  
+  try(dotplot(gsea_results, x = "NES", showCategory = 30, font.size = 7)+ 
+    labs(title = "GSEA",
+                subtitle = paste0("GSEA Reactome ",name))+
+     theme(axis.line = element_line(color='black'),
+      plot.background = element_blank(),
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank()))
+  
+  try(ggsave(plot = last_plot(), paste0("./figures/",name,"/Reactomegsea.svg"), dpi = 300,
+         height = 8, width = 8, device = "svg"))
+  
+  try(write.xlsx(gsea_results, paste0("./data_output/",name,"/Reactomegsea.xlsx")))
+  
+    gsea_results <- GSEA(
+    geneList = ordered_genes_fc, 
+    pvalueCutoff = 0.05, 
+    eps = 0, 
+    pAdjustMethod = "BH", 
+    nPermSimple = 10000,
+    TERM2GENE = dplyr::select(
+      hsa_wiki_sets,
+      gs_name,
+      gene_symbol)
+    )
+  
+  try(dotplot(gsea_results, x = "NES", showCategory = 30, font.size = 7)+ 
+    labs(title = "GSEA",
+                subtitle = paste0("GSEA Wikipathways ",name))+
+     theme(axis.line = element_line(color='black'),
+      plot.background = element_blank(),
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank()))
+  
+  try(ggsave(plot = last_plot(), paste0("./figures/",name,"/Wikipathwaysgsea.svg"), dpi = 300,
+         height = 8, width = 8, device = "svg"))
+  
+ try(write.xlsx(gsea_results, paste0("./data_output/",name,"/Wikipathwaysgsea.xlsx")))
+
+}
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
