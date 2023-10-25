@@ -39,7 +39,7 @@ For the concentrations, see the cell culture help chart on the data server in Al
 
 1. Run fastqc on Ubuntu: Check the quality of the 32 files.
 2. Build your GRCh38 index genome
-3. Align FASTQ files to GRCh38 : Use the staralign.sh bin bash script. You might have to sudo chmod +x staralign.sh before being able to run it. That script runs QuantMode to get count tables.
+3. Align FASTQ files to GRCh38 : Use the staralign.sh bin bash script. You might have to sudo chmod +x staralign.sh before being able to run it. That script runs quantMode to get count tables.
 4. The outputs will be
   - Out.tab
   - Readspergene.out.tab
