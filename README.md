@@ -33,6 +33,61 @@ Timing of spikes then collecting: ?
 
 For the concentrations, see the cell culture help chart on the data server in Albeck
 
+## Content of the analyses
+
+### Data processing
+
+1. Run fastqc on Ubuntu: Check the quality of the 32 files.
+2. Build your GRCh38 index genome
+3. Align FASTQ files to GRCh38 : Use the staralign.sh bin bash script. You might have to sudo chmod +x staralign.sh before being able to run it. That script runs QuantMode to get count tables.
+4. The outputs will be
+  - Out.tab
+	- Readspergene.out.tab
+	- Log.progress.out
+	- Log.out
+	- Log.final.out
+
+Log.out: main log file with a lot of detailed information about the run. This file is most useful for troubleshooting and debugging. Log.progress.out: reports job progress statistics, such as the number of processed reads, % of mapped reads etc. It is updated in 1 minute intervals.
+ Log.final.out: summary mapping statistics after mapping job is complete, very useful for quality control. The statistics are calculated for each read (single- or paired-end) and then summed or averaged over all reads. Note that STAR counts a paired-end read as one read, (unlike the samtools flagstat/idxstats, which count each mate separately). Most of the information is collected about the UNIQUE mappers (unlike samtools flagstat/idxstats which does not separate unique or multi-mappers). Each splicing is counted in the numbers of splices, which would correspond to summing the counts in SJ.out.tab. The mismatch/indel error rates are calculated on a per base basis, i.e. as total number of mismatches/indels in all unique mappers divided by the total number of mapped bases.
+
+With --quantMode GeneCounts option STAR will count number reads per gene while mapping.
+A read is counted if it overlaps (1nt or more) one and only one gene. Both ends of the pairedend read are checked for overlaps. The counts coincide with those produced by htseq-count with
+default parameters. This option requires annotations (GTF or GFF with –sjdbGTFfile option) used
+at the genome generation step, or at the mapping step. STAR outputs read counts per gene into
+
+ReadsPerGene.out.tab file with 4 columns which correspond to different strandedness options:
+column 1: gene ID
+column 2: counts for unstranded RNA-seq -> The one we will use!
+column 3: counts for the 1st read strand aligned with RNA (htseq-count option -s yes)
+column 4: counts for the 2nd read strand aligned with RNA (htseq-count option -s reverse)
+
+### Quality control
+
+Run the R scripts:
+- DESeq2_file_preparation: Formats your file to easily make a dds object
+- DESeq2 : makes your dds object and the coldata + does the basic QC which I redid in the following report
+
+### Report 1
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
