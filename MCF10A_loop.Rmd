@@ -121,7 +121,7 @@ saveRDS(dds, file = "./data_output/All_vs_IM_dds.rds")
 
 ## Compared to imaging media
 
-```{r, fig.show="hold", out.width="30%"}
+```{r, fig.show="hold", out.width="50%"}
 
 for (i in 2:16){
     cond = resultsNames(dds)[i]
@@ -294,7 +294,7 @@ saveRDS(dds, file = "./data_output/All_vs_GM_dds.rds")
 ```
 
 
-```{r, fig.show="hold", out.width="30%"}
+```{r, fig.show="hold", out.width="50%"}
 
 for (i in 2:16){
     cond = resultsNames(dds)[i]
@@ -466,7 +466,7 @@ saveRDS(dds, file = "./data_output/All_vs_Oligomycin_dds.rds")
 
 ```
 
-```{r, fig.show="hold", out.width="30%"}
+```{r, fig.show="hold", out.width="50%"}
 
 for (i in 2:16){
     cond = resultsNames(dds)[i]
@@ -640,7 +640,7 @@ saveRDS(dds, file = "./data_output/All_vs_IM_dds.rds")
 ```
 
 
-```{r, fig.show="hold", out.width="30%"}
+```{r, fig.show="hold", out.width="50%"}
 
 for (i in 2:16){
     cond = resultsNames(dds)[i]
@@ -815,7 +815,7 @@ saveRDS(dds, file = "./data_output/All_vs_IM_dds.rds")
 ```
 
 
-```{r, fig.show="hold", out.width="30%"}
+```{r, fig.show="hold", out.width="50%"}
 
 for (i in 2:16){
     cond = resultsNames(dds)[i]
@@ -989,7 +989,7 @@ saveRDS(dds, file = "./data_output/All_vs_IM_CT_neg_dds.rds")
 ```
 
 
-```{r, fig.show="hold", out.width="30%"}
+```{r, fig.show="hold", out.width="50%"}
 
 for (i in 2:16){
     cond = resultsNames(dds)[i]
