@@ -15,7 +15,7 @@ Timing of spikes then collecting: ?
 
 ## Conditions tested
 
-- Growth medium (Serum, EGF, insulin, cholera toxin, HC, glucose, glutamine, pyruvate)
+- Growth medium (horse serum, EGF, insulin, cholera toxin, HC, glucose, glutamine, pyruvate)
 - Imaging medium (insulin, cholera toxin, HC, glucose, pyruvate)
 - IM + glutamine
 - IM + EGF
