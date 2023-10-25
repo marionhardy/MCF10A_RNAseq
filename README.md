@@ -37,15 +37,15 @@ For the concentrations, see the cell culture help chart on the data server in Al
 
 ### Data processing
 
-1. Run fastqc on Ubuntu: Check the quality of the 32 files.
+1. Run fastqc on Ubuntu: Check the quality of the 32 files. Either do it using the interface or the fastqc.sh script.
 2. Build your GRCh38 index genome
 3. Align FASTQ files to GRCh38 : Use the staralign.sh bin bash script. You might have to sudo chmod +x staralign.sh before being able to run it. That script runs quantMode to get count tables.
 4. The outputs will be
-  - Out.tab
-  - Readspergene.out.tab
-  - Log.progress.out
-  - Log.out
-  - Log.final.out
+    - Out.tab
+    - Readspergene.out.tab
+    - Log.progress.out
+    - Log.out
+    - Log.final.out
 
 Log.out: main log file with a lot of detailed information about the run. This file is most useful for troubleshooting and debugging. Log.progress.out: reports job progress statistics, such as the number of processed reads, % of mapped reads etc. It is updated in 1 minute intervals.
  Log.final.out: summary mapping statistics after mapping job is complete, very useful for quality control. The statistics are calculated for each read (single- or paired-end) and then summed or averaged over all reads. Note that STAR counts a paired-end read as one read, (unlike the samtools flagstat/idxstats, which count each mate separately). Most of the information is collected about the UNIQUE mappers (unlike samtools flagstat/idxstats which does not separate unique or multi-mappers). Each splicing is counted in the numbers of splices, which would correspond to summing the counts in SJ.out.tab. The mismatch/indel error rates are calculated on a per base basis, i.e. as total number of mismatches/indels in all unique mappers divided by the total number of mapped bases.
@@ -67,12 +67,33 @@ Run the R scripts:
 - DESeq2_file_preparation: Formats your file to easily make a dds object
 - DESeq2 : makes your dds object and the coldata + does the basic QC which I redid in the following report
 
-### Report 1
+### MCF10A_report 1
 
+1. QC and batch effect analysis + correction:
 
+  - size factors
+  - dispersion estimates
+  - PCA of unfiltered/filtered data
+  - PCA of batch effect corrected data
+  - distance matrix for sample comparison
 
+2. DEG analyses
 
+  - EGF vs IM
+  - Oligomycin vs IM
+  - Oligonycin vs EGF
 
+For each of these:
+
+  - Volcano plot figure (in figures)
+  - GSEA analysis, databases queried:
+    - Gene Ontology Biological process
+    - Gene Ontology Molecular function
+    - Reactome
+    - KEGG
+    - Wikipathways
+- Excel document with all the differentially expressed genes (in data_output)
+- Excel document with each GSEA result (in data_output) -> !! These ones list the genes found in each significant terms
 
 
 
