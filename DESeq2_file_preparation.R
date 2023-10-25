@@ -12,7 +12,7 @@ library(Hmisc)
 
 # Im missing some data right now so some conditions dont have biological replicates
 
-names = c('GM_none_1',
+names = c('GM_none_1', 'GM_none_2',
           'IM_none_1','IM_none_2',
           'IM_none_Glut_1','IM_none_Glut_2',
           'IM_none_EGF_1','IM_none_EGF_2',
@@ -41,7 +41,7 @@ names = c('IM_none_AKTinhib_1','IM_none_AKTinhib_2',
           'IM_none_MPCinhib_1','IM_none_MPCinhib_2',
           'IM_none_LDHinhib_1','IM_none_LDHinhib_2',
           'IM_none_IL6_1','IM_none_IL6_2',
-          'GM_none_1',
+          'GM_none_1','GM_none_2',
           'IM_none_1','IM_none_2',
           'IM_none_Glut_1','IM_none_Glut_2',
           'IM_none_EGF_1','IM_none_EGF_2',
@@ -61,7 +61,7 @@ for(i in 1:length(files)){
 
 noquote(names) # Use that to quickly copy paste the names without the quotes
 
-counts <- list(GM_none_1 ,       
+counts <- list(GM_none_1 ,  GM_none_2,  
                IM_none_1    ,      IM_none_2  ,
                IM_none_Glut_1  ,   IM_none_Glut_2,     IM_none_EGF_1   ,  
                IM_none_EGF_2 ,     IM_none_noIns_1  ,  IM_none_noIns_2  ,
@@ -93,16 +93,16 @@ write.csv(counts,"./data/MCF10A_counts.csv", row.names = T)
 # Create the coldata for the summarized experiment
 
 coldata <- data.frame(
-  celltype =c(rep('MCF10A',each = 31)),
-  condition = as.factor(c('Growth_Medium',rep(c('IM','IM_Glutamine_pos','IM_EGF_pos','IM_Ins_neg',
+  celltype =c(rep('MCF10A',each = 32)),
+  condition = as.factor(rep(c('Growth_Medium','IM','IM_Glutamine_pos','IM_EGF_pos','IM_Ins_neg',
                         'IM_Glucose_neg','IM_HC_neg','IM_CT_neg','AMPK_activator',
                         'AKT_inhibitor','ERK_inhibitor','mTORC1_inhibitor',
-                        'Oligomycin','MPC_inhibitor','LDH_inhibitor','IL6'), each = 2, times = 1))),
-  condition_detail = as.factor(c('Growth_Medium',rep(c('IM','IM_Glutamine_pos','IM_EGF_pos','IM_Ins_neg',
+                        'Oligomycin','MPC_inhibitor','LDH_inhibitor','IL6'), each = 2, times = 1)),
+  condition_detail = as.factor(rep(c('Growth_Medium','IM','IM_Glutamine_pos','IM_EGF_pos','IM_Ins_neg',
                                     'IM_Glucose_neg','IM_HC_neg','IM_Cholera_toxin_neg','MK8722',
                                     'Ipasertip','PD0325901','Rapamycin',
-                                    'Oligomycin','UK5099','Galloflavin','IL6'), each = 2, times = 1))),
-  replicate=as.factor(c(1,rep(c(1:2),15))))
+                                    'Oligomycin','UK5099','Galloflavin','IL6'), each = 2, times = 1)),
+  replicate=as.factor(rep(c(1:2),16)))
 
 rownames(coldata) <- colnames(counts)[-1]
 

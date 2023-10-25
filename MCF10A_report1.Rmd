@@ -128,6 +128,7 @@ p4 <- plotPCA(rld1,intgroup="replicate") +
   labs(title = 'PCA per condition: Specific conditions selected')
 
 plot_grid(p3, p4, ncol = 2, align = "hv")
+
 ```
 
 I think we can see a pretty evident batch effect per replicate!
@@ -146,7 +147,7 @@ p5 <- plotPCA(vsd,intgroup="replicate") +
                   box.padding = 0.25,
                   segment.color = 'grey50',
                   fontface = "italic",
-                  label = vsd$condition)+
+                  label = vsd$replicate)+
   labs(title = 'Completed data: PCA not corrected')
 
 p6 <- plotPCA(vsd1,intgroup="replicate") + 
@@ -154,8 +155,16 @@ p6 <- plotPCA(vsd1,intgroup="replicate") +
                   box.padding = 0.25,
                   segment.color = 'grey50',
                   fontface = "italic",
-                  label = vsd1$condition)+
+                  label = vsd1$replicate)+
   labs(title = 'Completed data: PCA corrected')
+
+p9 <- plotPCA(vsd,intgroup="condition") + 
+  geom_text_repel(max.overlaps = 15,
+                  box.padding = 0.25,
+                  segment.color = 'grey50',
+                  fontface = "italic",
+                  label = vsd1$condition)+
+  labs(title = 'Complete data: PCA corrected')
 
 # Just on the clustered data
 
@@ -173,7 +182,7 @@ p7 <- plotPCA(vsd,intgroup="replicate") +
                   box.padding = 0.25,
                   segment.color = 'grey50',
                   fontface = "italic",
-                  label = vsd$condition)+
+                  label = vsd$replicate)+
   labs(title = 'Filtered data: PCA not corrected')
 
 p8 <- plotPCA(vsd1,intgroup="replicate") + 
@@ -181,10 +190,14 @@ p8 <- plotPCA(vsd1,intgroup="replicate") +
                   box.padding = 0.25,
                   segment.color = 'grey50',
                   fontface = "italic",
-                  label = vsd1$condition)+
+                  label = vsd1$replicate)+
   labs(title = 'Filtered data: PCA corrected')
 
+
+
 plot_grid(p5, p6, p7, p8, ncol = 2, nrow = 2, align = "hv")
+
+p9
 
 ```
 
@@ -362,7 +375,7 @@ set.seed(054057) # for reproducibility
 
 #### GOBP
 
-```{r, fig.height=8, fig.width=7}
+```{r, fig.height=9, fig.width=7}
 
 gsea_results <- GSEA(
   geneList = ordered_genes_fc, 
@@ -392,15 +405,44 @@ write.xlsx(gsea_results, "./data_output/Oligomycin_vs_IM/GOBPgsea.xlsx")
 
 ```
 
-```{r}
+```{r, fig.height=5, fig.width=7}
 
-cnetplot(gsea_results, foldChange=ordered_genes_fc, showCategory = 50,
-         cex_label_category = .5, cex_label_gene = .5)
+targetora = c("GOBP_ENDOPLASMIC_RETICULUM_UNFOLDED_PROTEIN_RESPONSE",
+              "GOBP_ENDOPLASMIC_RETICULUM_TO_GOLGI_VESICLE_MEDIATED_TRANSPORT",
+              "GOBP_ATP_SYNTHESIS_COUPLED_PROTON_TRANSPORT",
+              "GOBP_OXIDATIVE_PHOSPHORYLATION",
+              "GOBP_UNSATURATED_FATTY_ACID_METABOLIC_PROCESS")
+
+partial = 
+gsea_results %>% 
+  filter(gsea_results@result$ID %in% targetora)
+
+partial %>% 
+  dotplot(showCategory = 30, font.size = 8, x = "NES")+ 
+  ggtitle("Filtered GSEA: Just an example")+
+   theme(axis.line = element_line(color='black'),
+    plot.background = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank())
+
+
+```
+
+
+```{r, fig.height=9, fig.width=9}
+
+cnetplot(partial, foldChange=ordered_genes_fc, showCategory = 50,
+         cex_label_category = .5, cex_label_gene = .5, layout = 'fr')+
+  scale_colour_gradient2(name = "fold change", 
+                         low = "blue", 
+                         mid = "white", 
+                         high = "red")
+
 ```
 
 #### GOMF
 
-```{r, fig.height=8, fig.width=7}
+```{r, fig.height=9, fig.width=7}
 
 gsea_results <- GSEA(
   geneList = ordered_genes_fc, 
@@ -668,7 +710,7 @@ cnetplot(gsea_results, foldChange=ordered_genes_fc, showCategory = 50,
 
 #### GOMF
 
-```{r, fig.height=8, fig.width=7}
+```{r, fig.height=9, fig.width=7}
 
 gsea_results <- GSEA(
   geneList = ordered_genes_fc, 
@@ -982,7 +1024,7 @@ cnetplot(gsea_results, foldChange=ordered_genes_fc, showCategory = 50,
 
 ##### Reactome
 
-```{r, fig.height=8, fig.width=7}
+```{r, fig.height=9, fig.width=7}
 
 gsea_results <- GSEA(
   geneList = ordered_genes_fc, 
