@@ -1,0 +1,653 @@
+---
+title: "MCF10A metabolism screen"
+author: "Marion Hardy"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    toc: true 
+    theme: spacelab 
+    highlight: monochrome
+editor_options: 
+  chunk_output_type: console
+  markdown: 
+    wrap: 72
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message = FALSE, cache = TRUE, echo = FALSE, warning = F, cache.lazy = F)
+knitr::opts_chunk$set(fig.width=10, fig.height=15) 
+
+library(RColorBrewer)
+library(tidyverse)
+library(DESeq2)
+library(tidyverse)
+library(cowplot)
+library(biomaRt)
+library(ggrepel)
+library(RColorBrewer)
+library(pheatmap)
+library(xlsx)
+library(msigdbr)
+library(clusterProfiler)
+library(NMF)
+library(org.Hs.eg.db)
+library(ReactomePA)
+```
+
+```{r Data loading, include=FALSE}
+
+counts <- as.data.frame(read.csv("./data/MCF10A_counts.csv", row.names = 1))
+coldata = read.csv("./data/coldata.csv")
+counts = counts[,-1]
+
+```
+
+# Introduction
+
+Analysis of MCF10A in 16 different conditions 2 biological replicates
+per sample
+
+This report was made following John's suggestion to check the difference between the samples separated by PC1.
+
+# Create new coldata
+
+Add to the metadata to group the PC1 left group (EGF Oligo and growth medium) vs all other samples.
+
+```{r, fig.height=4, fig.width=6}
+
+coldata$PC1 = c("out","out", rep("others",4),
+                "OlEGF","OlEGF", rep("others",16),
+                "OlEGF","OlEGF", rep("others",6))
+
+write.csv(coldata,"./data/coldata.csv")
+
+dds <- DESeqDataSetFromMatrix(countData = counts, colData = coldata,
+                              design = ~PC1+replicate) 
+
+dds$PC1 <- relevel(dds$PC1, "others")
+dds <- DESeq(dds)
+
+#saveRDS(dds, file = "./data_output/PC1_OlEGF_vs_others_dds.rds")
+
+```
+
+# PCA
+
+## All conditions
+
+```{r, fig.height=6, fig.width=12}
+# Checking PCA
+
+rld <- vst(dds)
+
+p1 <- plotPCA(rld,intgroup="PC1") + 
+  geom_text_repel(max.overlaps = 15,
+                  box.padding = 0.25,
+                  segment.color = 'grey50',
+                  fontface = "italic",
+                  label = rld$PC1)+
+  labs(title = 'PCA per PC1')
+
+p2 <- plotPCA(rld,intgroup="condition") + 
+  geom_text_repel(max.overlaps = 15,
+                  box.padding = 0.25,
+                  segment.color = 'grey50',
+                  fontface = "italic",
+                  label = rld$condition)+
+  labs(title = 'PCA per condition')
+
+plot_grid(p1, p2, ncol = 2, align = "hv")
+
+```
+
+# Heatmap of z score
+
+```{r, fig.height=60, fig.width=10}
+
+diff = read.xlsx("./data_output/PC1_OlEGF_vs_others/Sign_genes.xlsx", sheetName = 'SIGNIF')
+
+reslog = vst(dds, blind = FALSE)
+mat = assay(reslog)
+
+coldata = as.data.frame(colData(reslog))
+colnames(mat) = rownames(coldata)
+
+# Do the scaling to get z-scores
+
+basemean = rowMeans(mat)
+mats = t(apply(mat, 1, scale))
+colnames(mats) = colnames(mat)
+
+mats = mats[diff$ensembl,]
+rownames(mats) = diff$gene
+
+pheatmap(mats, main="z-score heatmap", cluster_cols=F,
+         fontsize_row=3, border_color=NA, scale = "none")
+
+```
+
+# Comparing the EGF+Oligo vs all others (excluding GM)
+
+```{r}
+
+resultsNames(dds) %>% 
+  knitr::kable()
+
+res <- results(dds, name = "PC1_OlEGF_vs_others")
+res_tbl <- as_tibble(res, rownames="ensembl")
+
+# Import annotation file
+
+ensembl_to_geneName <- readRDS("./data/hsapiens_annotations_230510.rds") %>% 
+  filter(!duplicated(gene, drop = F))
+
+# Add gene names and entrez id to your results
+
+res_tbl <- res_tbl %>%
+  left_join(ensembl_to_geneName) %>%
+  arrange(padj) 
+
+# write.csv(res_tbl,"./data_output/PC1_OlEGF_vs_others/res_tbl.csv", row.names = T)
+
+# plotMA(res) # looks good
+
+# Save the signif genes
+
+# overexpr <- res_tbl %>% filter(padj<=0.05 & log2FoldChange>=1) 
+# underexpr <- res_tbl %>% filter(padj<=0.05 & log2FoldChange<=-1)
+# signif <- full_join(overexpr, underexpr)
+
+# write.xlsx(overexpr, file="./data_output/PC1_OlEGF_vs_others/Sign_genes.xlsx", sheetName="UP")
+# write.xlsx(underexpr, file="./data_output/PC1_OlEGF_vs_others/Sign_genes.xlsx", sheetName="DOWN", append=TRUE)
+# write.xlsx(signif, file="./data_output/PC1_OlEGF_vs_others/Sign_genes.xlsx", sheetName="SIGNIF", append=TRUE)
+
+```
+
+### Volcano plots
+
+```{r, fig.height=6, fig.width=8}
+# Volcano plot
+
+p1 =
+res_tbl %>%
+  filter(!is.na(padj)) %>%
+  ggplot(aes(x = log2FoldChange, y = -log10(padj),
+             color = padj < 0.05 & abs(log2FoldChange) > 1, 
+             label = ifelse(padj<0.05&log2FoldChange>=1|
+                              padj<0.05&log2FoldChange<=-1,as.character(gene),''))) +
+  scale_colour_manual(values = c("gray", "firebrick3")) +
+  labs(col="Sign diff expressed")+
+  geom_point(size = 0.5) +
+  geom_hline(yintercept = -log10(0.05)) +
+  geom_vline(xintercept = 1) +
+  geom_vline(xintercept = -1)+
+  geom_text_repel(max.overlaps = 15,
+                  box.padding = 0.25,
+                  segment.color = 'grey50',
+                  fontface = "italic")+
+  labs(title = "PC1 EGF and oligo vs all others")+
+  theme_bw()
+
+print(p1)
+
+# ggsave("./figures/PC1_OlEGF_vs_others/volcanoplot.png", last_plot(), dpi= 500, width = 12, height = 8)
+
+```
+
+### GSEA analysis (logFc)
+
+```{r}
+
+ordered_genes_fc <- res_tbl$log2FoldChange
+names(ordered_genes_fc) <- res_tbl$gene
+ordered_genes_fc <- sort(ordered_genes_fc, decreasing = T)
+
+```
+
+```{r}
+
+# MsigDb
+
+hsa_GOBP_sets <- msigdbr(
+  species = "Homo sapiens", 
+  category = "C5",
+  subcategory = "GO:BP")
+
+hsa_GOMF_sets <- msigdbr(
+  species = "Homo sapiens", 
+  category = "C5",
+  subcategory = "GO:MF")
+
+hsa_GOCC_sets <- msigdbr(
+  species = "Homo sapiens", 
+  category = "C5",
+  subcategory = "GO:CC") 
+
+hsa_reactome_sets <- msigdbr(
+  species = "Homo sapiens", 
+  category = "C2",
+  subcategory = "CP:REACTOME") # for reactome collection
+
+hsa_kegg_sets <- msigdbr(
+  species = "Homo sapiens", 
+  category = "C2",
+  subcategory = "CP:KEGG") # for KEGG collection
+
+hsa_wiki_sets <- msigdbr(
+  species = "Homo sapiens", 
+  category = "C2",
+  subcategory = "CP:WIKIPATHWAYS") # for Wikipathways collection
+
+set.seed(054057) # for reproducibility
+
+```
+
+#### GOBP
+
+```{r, fig.height=18, fig.width=7}
+
+gsea_results <- GSEA(
+  geneList = ordered_genes_fc, 
+  pvalueCutoff = 0.05, 
+  eps = 0, 
+  pAdjustMethod = "BH", 
+  nPermSimple = 10000,
+  TERM2GENE = dplyr::select(
+    hsa_GOBP_sets,
+    gs_name,
+    gene_symbol
+  )
+)
+
+dotplot(gsea_results, x = "NES", showCategory = 50, font.size = 7)+ 
+  labs(title = "GSEA",
+              subtitle = "GO:BP Oligo and EGF vs others")+
+   theme(axis.line = element_line(color='black'),
+    plot.background = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank())
+
+ggsave(plot = last_plot(), "./figures/PC1_OlEGF_vs_others/GOBPgsea.svg", dpi = 300,
+       height =15, width = 8, device = "svg")
+
+# write.xlsx(gsea_results, "./data_output/PC1_OlEGF_vs_others/GOBPgsea.xlsx")
+
+```
+
+
+```{r}
+
+cnetplot(gsea_results, foldChange=ordered_genes_fc, showCategory = 50,
+         cex_label_category = .5, cex_label_gene = .5, layout = 'fr')+
+  scale_colour_gradient2(name = "fold change", 
+                         low = "blue", 
+                         mid = "white", 
+                         high = "red")
+
+```
+
+#### GOMF
+
+```{r, fig.height=9, fig.width=7}
+
+gsea_results <- GSEA(
+  geneList = ordered_genes_fc, 
+  pvalueCutoff = 0.05, 
+  eps = 0, 
+  pAdjustMethod = "BH", 
+  nPermSimple = 10000,
+  TERM2GENE = dplyr::select(
+    hsa_GOMF_sets,
+    gs_name,
+    gene_symbol
+  )
+)
+
+dotplot(gsea_results, x = "NES", showCategory = 30, font.size = 7)+ 
+  labs(title = "GSEA",
+              subtitle = "GO:MF Oligo and EGF vs others")+
+   theme(axis.line = element_line(color='black'),
+    plot.background = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank())
+
+# ggsave(plot = last_plot(), "./figures/PC1_OlEGF_vs_others/GOMFgsea.svg", dpi = 300,
+#        height = 10, width = 8, device = "svg")
+# 
+# write.xlsx(gsea_results, "./data_output/PC1_OlEGF_vs_others/GOMFgsea.xlsx")
+
+```
+
+```{r}
+
+cnetplot(gsea_results, foldChange=ordered_genes_fc, showCategory = 50,
+         cex_label_category = .5, cex_label_gene = .5)+
+  scale_colour_gradient2(name = "fold change", 
+                         low = "blue", 
+                         mid = "white", 
+                         high = "red")
+```
+
+#### Reactome
+
+```{r, fig.height=8, fig.width=7}
+
+gsea_results <- GSEA(
+  geneList = ordered_genes_fc, 
+  pvalueCutoff = 0.05, 
+  eps = 0, 
+  pAdjustMethod = "BH", 
+  nPermSimple = 10000,
+  TERM2GENE = dplyr::select(
+    hsa_reactome_sets,
+    gs_name,
+    gene_symbol
+  )
+)
+
+dotplot(gsea_results, x = "NES", showCategory = 30, font.size = 7)+ 
+  labs(title = "GSEA",
+              subtitle = "Reactome Oligo and EGF vs others")+
+   theme(axis.line = element_line(color='black'),
+    plot.background = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank())
+
+ggsave(plot = last_plot(), "./figures/PC1_OlEGF_vs_others/Reactomegsea.svg", 
+       dpi = 300, height = 10, width = 8, device = "svg")
+
+write.xlsx(gsea_results, "./data_output/PC1_OlEGF_vs_others/Reactomegsea.xlsx")
+
+```
+
+```{r}
+
+cnetplot(gsea_results, foldChange=ordered_genes_fc, showCategory = 50,
+         cex_label_category = .5, cex_label_gene = .5)+
+  scale_colour_gradient2(name = "fold change", 
+                         low = "blue", 
+                         mid = "white", 
+                         high = "red")
+```
+
+
+#### KEGG
+
+```{r, fig.height=8, fig.width=7}
+
+gsea_results <- GSEA(
+  geneList = ordered_genes_fc, 
+  pvalueCutoff = 0.05, 
+  eps = 0, 
+  pAdjustMethod = "BH", 
+  nPermSimple = 10000,
+  TERM2GENE = dplyr::select(
+    hsa_kegg_sets,
+    gs_name,
+    gene_symbol
+  )
+)
+
+dotplot(gsea_results, x = "NES", showCategory = 30, font.size = 7)+ 
+  labs(title = "GSEA",
+              subtitle = "KEGG Oligo and EGF vs others")+
+   theme(axis.line = element_line(color='black'),
+    plot.background = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank())
+
+# ggsave(plot = last_plot(), "./figures/PC1_OlEGF_vs_others/KEGGgsea.svg", dpi = 300,
+#        height = 8, width = 8, device = "svg")
+# 
+# write.xlsx(gsea_results, "./data_output/PC1_OlEGF_vs_others/KEGGgsea.xlsx")
+
+```
+
+
+```{r}
+
+cnetplot(gsea_results, foldChange=ordered_genes_fc, showCategory = 50,
+         cex_label_category = .5, cex_label_gene = .5)+
+  scale_colour_gradient2(name = "fold change", 
+                         low = "blue", 
+                         mid = "white", 
+                         high = "red")
+```
+
+#### Wikipathways
+
+```{r, fig.height=8, fig.width=7}
+
+gsea_results <- GSEA(
+  geneList = ordered_genes_fc, 
+  pvalueCutoff = 0.05, 
+  eps = 0, 
+  pAdjustMethod = "BH", 
+  nPermSimple = 10000,
+  TERM2GENE = dplyr::select(
+    hsa_wiki_sets,
+    gs_name,
+    gene_symbol
+  )
+)
+
+dotplot(gsea_results, x = "NES", showCategory = 30, font.size = 7)+ 
+  labs(title = "GSEA",
+              subtitle = "Wikipathways Oligo and EGF vs others")+
+   theme(axis.line = element_line(color='black'),
+    plot.background = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank())
+
+# ggsave(plot = last_plot(), "./figures/PC1_OlEGF_vs_others/wikigsea.svg", dpi = 300,
+#        height = 10, width = 8, device = "svg")
+# 
+# write.xlsx(gsea_results, "./data_output/PC1_OlEGF_vs_others/wikigsea.xlsx")
+
+```
+
+
+```{r}
+
+cnetplot(gsea_results, foldChange=ordered_genes_fc, showCategory = 50,
+         cex_label_category = .5, cex_label_gene = .5)+
+  scale_colour_gradient2(name = "fold change", 
+                         low = "blue", 
+                         mid = "white", 
+                         high = "red")
+```
+
+
+# What effects comes from EGF and what comes oligo?
+
+```{r}
+
+coldata$PC1_sep = c("out","out", rep("others",4),
+                "EGF","EGF", rep("others",16),
+                "Oligo","Oligo", rep("others",6))
+
+# write.csv(coldata,"./data/coldata.csv")
+
+dds <- DESeqDataSetFromMatrix(countData = counts, colData = coldata,
+                              design = ~PC1_sep+replicate) 
+
+dds$PC1_sep <- relevel(dds$PC1_sep, "others")
+
+dds <- DESeq(dds)
+
+resultsNames(dds)
+
+## Get EGF vs others
+res_egf <- results(dds, name = "PC1_sep_EGF_vs_others")
+res_egf_tbl <- as_tibble(res_egf, rownames="ensembl")
+
+res_egf_tbl <- res_egf_tbl %>%
+  left_join(ensembl_to_geneName) %>%
+  arrange(padj) %>% 
+  na.omit()
+
+# write.csv(res_egf_tbl,"./data_output/PC1_EGF_vs_others/res_tbl.csv", row.names = T)
+
+# overexpr <- res_egf_tbl %>% filter(padj<=0.05 & log2FoldChange>=1)
+# underexpr <- res_egf_tbl %>% filter(padj<=0.05 & log2FoldChange<=-1)
+# signif <- full_join(overexpr, underexpr)
+# 
+# write.xlsx(overexpr, file="./data_output/PC1_EGF_vs_others/Sign_genes.xlsx", sheetName="UP")
+# write.xlsx(underexpr, file="./data_output/PC1_EGF_vs_others/Sign_genes.xlsx", sheetName="DOWN", append=TRUE)
+# write.xlsx(signif, file="./data_output/PC1_EGF_vs_others/Sign_genes.xlsx", sheetName="SIGNIF", append=TRUE)
+
+## Get Oligo vs others
+res_oligo <- results(dds, name = "PC1_sep_Oligo_vs_others")
+res_oligo_tbl <- as_tibble(res_oligo, rownames="ensembl")
+
+res_oligo_tbl <- res_oligo_tbl %>%
+  left_join(ensembl_to_geneName) %>%
+  arrange(padj) %>% 
+  na.omit()
+
+# write.csv(res_oligo_tbl,"./data_output/PC1_oligo_vs_others/res_tbl.csv", row.names = T)
+
+# overexpr <- res_oligo_tbl %>% filter(padj<=0.05 & log2FoldChange>=1)
+# underexpr <- res_oligo_tbl %>% filter(padj<=0.05 & log2FoldChange<=-1)
+# signif <- full_join(overexpr, underexpr)
+# 
+# write.xlsx(overexpr, file="./data_output/PC1_Oligo_vs_others/Sign_genes.xlsx", sheetName="UP")
+# write.xlsx(underexpr, file="./data_output/PC1_Oligo_vs_others/Sign_genes.xlsx", sheetName="DOWN", append=TRUE)
+# write.xlsx(signif, file="./data_output/PC1_Oligo_vs_others/Sign_genes.xlsx", sheetName="SIGNIF", append=TRUE)
+
+```
+
+
+## Venn diagram of common genes
+
+```{r}
+
+
+
+
+```
+
+But this doesn't take into account the logFc of the change in those genes
+Is there a way to score a pathway such as:
+- EGF explains 20% of the change in that pathway's enrichment
+- Oligo explains the other 80%
+
+```{r, fig.width=5, fig.height=5, eval=FALSE}
+
+# concatenating significant genes 
+
+res_tbl =
+  res_tbl %>% 
+  na.omit()
+
+res_tbl$comparison = "EGF_Oli_vs_others"
+res_egf_tbl$comparison = "EGF_vs_others"
+res_oligo_tbl$comparison = "Oligo_vs_others"
+
+fc = 
+  list(res_tbl, res_egf_tbl, res_oligo_tbl) %>% 
+  purrr::reduce(full_join) %>% 
+  dplyr::select(log2FoldChange, gene, comparison) %>% 
+  pivot_wider(names_from = comparison,
+              values_from = log2FoldChange)
+
+fc_matrix = fc[,2:4] 
+rownames(fc_matrix) = fc$gene
+
+fc_matrix = as.matrix(fc_matrix)
+
+# which genes do we want to look at 
+
+fc1 = 
+  list(res_tbl, res_egf_tbl, res_oligo_tbl) %>% 
+  purrr::reduce(full_join) %>% 
+  dplyr::select(log2FoldChange, gene, comparison) %>% 
+  filter(log2FoldChange>2) %>% 
+  pivot_wider(names_from = comparison,
+              values_from = log2FoldChange) 
+
+fc1_matrix = fc1[,2:4]  %>% 
+ replace(is.na(.), 0) 
+rownames(fc1_matrix) = fc1$gene
+
+fc1_matrix = as.matrix(fc1_matrix)
+
+fc1_matrix = fc1_matrix[fc1_matrix[,1]>0,]
+
+```
+
+```{r, fig.width=5, fig.height=15, eval=FALSE}
+
+aheatmap(fc1_matrix, color = rev(brewer.pal(9,"RdBu")),
+         annColors = "Set2")
+
+pheatmap(fc1_matrix, main=" ", cluster_cols=F,
+         fontsize_row=3, border_color=NA, scale = "none")
+
+```
+
+
+## GSEA 
+
+### GOBP
+ Get the common terms and facet grid the different comparisons
+ 
+```{r, fig.width=12, fig.height=14}
+
+ordered_genes_fc1 <- res_egf_tbl$log2FoldChange
+names(ordered_genes_fc1) <- res_egf_tbl$gene
+ordered_genes_fc1 <- sort(ordered_genes_fc1, decreasing = T)
+
+ordered_genes_fc2 <- res_oligo_tbl$log2FoldChange
+names(ordered_genes_fc2) <- res_oligo_tbl$gene
+ordered_genes_fc2 <- sort(ordered_genes_fc2, decreasing = T)
+
+gcSample = list(Oligomycin = ordered_genes_fc2, 
+                EGF = ordered_genes_fc1, 
+                both = ordered_genes_fc)
+
+ck = compareCluster(gcSample, fun = GSEA, TERM2GENE = dplyr::select(
+    hsa_GOBP_sets,
+    gs_name,
+    gene_symbol
+  ))
+
+dotplot(ck, showCategory = 20, font.size = 7, x = "NES", by = "Count")+
+  facet_grid(.~Cluster)+
+  scale_colour_gradient2(limits=c(0, 0.05), low="red", high = "blue", 
+                         mid = "grey", midpoint = 0.025)+
+  labs(title = "GSEA GO:BP",
+              subtitle = "Comparing the contributions of EGF and Oligo to the PC1 dimension")
+
+write.xlsx(ck, "./data_output/PC1_OlEGF_vs_others/GOBPgsea_compare_conditions.xlsx")
+
+```
+ 
+
+### Reactome
+ Get the common terms and facet grid the different comparisons
+ 
+```{r, fig.width=12, fig.height=14}
+
+ck = compareCluster(gcSample, fun = GSEA, TERM2GENE = dplyr::select(
+    hsa_reactome_sets,
+    gs_name,
+    gene_symbol
+  ))
+
+dotplot(ck, showCategory = 20, font.size = 7, x = "NES", by = "Count")+
+  facet_grid(.~Cluster)+
+  scale_colour_gradient2(limits=c(0, 0.05), low="red", high = "blue", 
+                         mid = "grey", midpoint = 0.025)+
+  labs(title = "GSEA Reactome",
+              subtitle = "Comparing the contributions of EGF and Oligo to the PC1 dimension")
+
+write.xlsx(ck, "./data_output/PC1_OlEGF_vs_others/Reactomegsea_compare_conditions.xlsx")
+
+```
+
+
+
+```{r}
+sessionInfo()
+```
