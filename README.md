@@ -97,17 +97,17 @@ For each of these:
 - Excel document with each GSEA result (in data_output) -> !! These ones list the genes found in each significant terms
 
 
-MCF10A_report_2
+# MCF10A_report_2
 
 
-Introduction
-PCA
-Heatmap of z score
-Comparing the EGF+Oligo vs all others (excluding GM)
-Volcano plots
-GSEA analysis (logFc)
-What are the contribution of EGF and Oligomycin to the PC1 dimesion
-GSEA
+##Introduction
+##PCA
+##Heatmap of z score
+##Comparing the EGF+Oligo vs all others (excluding GM)
+###Volcano plots
+###GSEA analysis (logFc)
+##What are the contribution of EGF and Oligomycin to the PC1 dimesion
+##GSEA
  - GOBP
  - Reactome
 
