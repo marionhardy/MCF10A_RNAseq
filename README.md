@@ -7,12 +7,12 @@ Sequenced through Parse bio
 ## Experimental design
 
 MCF10A in culture
-Biological replicates per method : 2 (but on the same day?)
+Biological replicates per method : 2, made two weeks apart
 - Live imaged
 - RNA sequenced
 - scRNA sequenced
 
-Timing of spikes then collecting: ?
+Timing of spikes then collecting: 16 hours after spike
 
 ## Conditions tested
 
