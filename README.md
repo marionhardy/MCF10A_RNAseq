@@ -100,14 +100,14 @@ For each of these:
 # MCF10A_report_2
 
 
-## Introduction
-## PCA
-## Heatmap of z score
-## Comparing the EGF+Oligo vs all others (excluding GM)
-### Volcano plots
-### GSEA analysis (logFc)
-## What are the contribution of EGF and Oligomycin to the PC1 dimesion
-## GSEA
+1. Introduction
+2. PCA
+3. Heatmap of z score
+4. Comparing the EGF+Oligo vs all others (excluding GM)
+4.1 Volcano plots
+4.2 GSEA analysis (logFc)
+5. What are the contribution of EGF and Oligomycin to the PC1 dimesion
+6. GSEA
  - GOBP
  - Reactome
 
