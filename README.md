@@ -68,7 +68,7 @@ Run the R scripts:
 - DESeq2_file_preparation: Formats your file to easily make a dds object
 - DESeq2 : makes your dds object and the coldata + does the basic QC which I redid in the following report
 
-### MCF10A_report 1
+### MCF10A_report_1
 
 1. QC and batch effect analysis + correction:
 
@@ -97,10 +97,19 @@ For each of these:
 - Excel document with each GSEA result (in data_output) -> !! These ones list the genes found in each significant terms
 
 
+MCF10A_report_2
 
 
-
-
+Introduction
+PCA
+Heatmap of z score
+Comparing the EGF+Oligo vs all others (excluding GM)
+Volcano plots
+GSEA analysis (logFc)
+What are the contribution of EGF and Oligomycin to the PC1 dimesion
+GSEA
+ - GOBP
+ - Reactome
 
 
 
