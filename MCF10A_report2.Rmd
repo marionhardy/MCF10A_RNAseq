@@ -79,6 +79,7 @@ dds <- DESeq(dds)
 # Checking PCA
 
 rld <- vst(dds)
+assay(rld) <- limma::removeBatchEffect(assay(rld), rld$replicate)
 
 p1 <- plotPCA(rld,intgroup="PC1") + 
   geom_text_repel(max.overlaps = 15,
@@ -97,6 +98,25 @@ p2 <- plotPCA(rld,intgroup="condition") +
   labs(title = 'PCA per condition')
 
 plot_grid(p1, p2, ncol = 2, align = "hv")
+
+```
+
+
+```{r}
+
+p2 <- plotPCA(rld,intgroup="condition") + 
+  geom_text_repel(max.overlaps = 15,
+                  box.padding = 0.25,
+                  segment.color = 'grey50',
+                  fontface = "italic",
+                  label = rld$condition)+
+  theme_bw()+
+  labs(title = 'PCA per condition')
+
+print(p2)
+
+ggsave(plot = p2, "./figures/PCA.svg", device = "svg", dpi = 300,
+       height = 5, width = 7)
 
 ```
 
@@ -619,7 +639,7 @@ dotplot(ck, showCategory = 20, font.size = 7, x = "NES", by = "Count")+
   labs(title = "GSEA GO:BP",
               subtitle = "Comparing the contributions of EGF and Oligo to the PC1 dimension")
 
-write.xlsx(ck, "./data_output/PC1_OlEGF_vs_others/GOBPgsea_compare_conditions.xlsx")
+# write.xlsx(ck, "./data_output/PC1_OlEGF_vs_others/GOBPgsea_compare_conditions.xlsx")
 
 ```
  
@@ -642,10 +662,85 @@ dotplot(ck, showCategory = 20, font.size = 7, x = "NES", by = "Count")+
   labs(title = "GSEA Reactome",
               subtitle = "Comparing the contributions of EGF and Oligo to the PC1 dimension")
 
-write.xlsx(ck, "./data_output/PC1_OlEGF_vs_others/Reactomegsea_compare_conditions.xlsx")
+# write.xlsx(ck, "./data_output/PC1_OlEGF_vs_others/Reactomegsea_compare_conditions.xlsx")
+
+ggsave(plot = last_plot(), "./figures/Reactome_comp_GSEA.svg", device = "svg", dpi = 300,
+       height = 11, width = 8)
 
 ```
 
+```{r, fig.width=12, fig.height=14}
+
+ck1n = ck@compareClusterResult$ID[1:10]
+ck1 = ck@compareClusterResult %>% 
+  filter(ID %in% ck1n)
+
+dotplot(ck1, showCategory = 20, font.size = 7, x = "NES", by = "Count")+
+  facet_grid(.~Cluster)+
+  scale_colour_gradient2(limits=c(0, 0.05), low="red", high = "blue", 
+                         mid = "grey", midpoint = 0.025)+
+  labs(title = "GSEA Reactome",
+              subtitle = "Comparing the contributions of EGF and Oligo to the PC1 dimension")
+
+# write.xlsx(ck, "./data_output/PC1_OlEGF_vs_others/Reactomegsea_compare_conditions.xlsx")
+
+ggsave(plot = last_plot(), "./figures/Reactome_comp_GSEA.svg", device = "svg", dpi = 300,
+       height = 11, width = 8)
+
+```
+
+```{r, fig.height=10, fig.width=12}
+
+targetora = c("REACTOME_UNFOLDED_PROTEIN_RESPONSE_UPR",
+               "REACTOME_PERK_REGULATES_GENE_EXPRESSION",
+              "REACTOME_IRE1ALPHA_ACTIVATES_CHAPERONES",
+              "REACTOME_ATF4_ACTIVATES_GENES_IN_RESPONSE_TO_ENDOPLASMIC_RETICULUM_STRESS",
+              "REACTOME_G2_M_CHECKPOINTS" ,
+              "REACTOME_MITOTIC_SPINDLE_CHECKPOINT" ,
+              "REACTOME_TRNA_AMINOACYLATION",
+              "REACTOME_SUMOYLATION_OF_DNA_DAMAGE_RESPONSE_AND_REPAIR_PROTEINS",
+               "REACTOME_M_PHASE",
+
+               "REACTOME_CELL_CYCLE_CHECKPOINTS",
+               "REACTOME_DNA_DOUBLE_STRAND_BREAK_REPAIR",
+               "REACTOME_MITOTIC_METAPHASE_AND_ANAPHASE",
+               "REACTOME_HOMOLOGY_DIRECTED_REPAIR",
+               "REACTOME_TRANSPORT_TO_THE_GOLGI_AND_SUBSEQUENT_MODIFICATION",
+               "REACTOME_ION_TRANSPORT_BY_P_TYPE_ATPASES",
+               "REACTOME_CYTOCHROME_P450_ARRANGED_BY_SUBSTRATE_TYPE",
+               "REACTOME_ATF6_ATF6_ALPHA_ACTIVATES_CHAPERONES",
+               "REACTOME_ER_TO_GOLGI_ANTEROGRADE_TRANSPORT",
+               "REACTOME_INTRA_GOLGI_AND_RETROGRADE_GOLGI_TO_ER_TRAFFIC",
+               "REACTOME_SIGNALING_BY_PDGF",
+               "REACTOME_TRANSLATION",
+               "REACTOME_FATTY_ACID_METABOLISM",
+               "REACTOME_THE_CITRIC_ACID_TCA_CYCLE_AND_RESPIRATORY_ELECTRON_TRANSPORT",
+               "REACTOME_GENE_SILENCING_BY_RNA", 
+               "REACTOME_DNA_DAMAGE_TELOMERE_STRESS_INDUCED_SENESCENCE",
+              
+               "REACTOME_TRNA_PROCESSING_IN_THE_NUCLEUS",
+               "REACTOME_CYTOSOLIC_TRNA_AMINOACYLATION",
+               "REACTOME_ACTIVATION_OF_ATR_IN_RESPONSE_TO_REPLICATION_STRESS",
+               "REACTOME_REGULATION_OF_TP53_ACTIVITY_THROUGH_PHOSPHORYLATION",
+               "REACTOME_SIGNALING_BY_EGFR",
+               "REACTOME_RECOGNITION_OF_DNA_DAMAGE_BY_PCNA_CONTAINING_REPLICATION_COMPLEX",
+               "REACTOME_OXIDATIVE_STRESS_INDUCED_SENESCENCE")
+
+partial = 
+ck %>% 
+  filter(ck@compareClusterResult$ID %in% targetora)
+
+dotplot(partial, showCategory = 50, font.size = 8, x = "NES", by = "Count")+
+  facet_grid(.~Cluster)+
+  scale_colour_gradient2(limits=c(0, 0.05), low="red", high = "blue", 
+                         mid = "grey", midpoint = 0.025)+
+  labs(title = "GSEA Reactome",
+              subtitle = "Comparing the contributions of EGF and Oligo to the PC1 dimension")
+
+ggsave(plot = last_plot(), "./figures/Reactome_comp1_GSEA.svg", device = "svg", dpi = 300,
+       height = 12, width = 12)
+
+```
 
 
 ```{r}
